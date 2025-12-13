@@ -1,0 +1,238 @@
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { verifySignature, formatPublicKey } from '../../lib/verify';
+import { Ed25519PublicKey } from "@aptos-labs/ts-sdk";
+
+export interface Message {
+    id: string;
+    sender: string;
+    receiver: string;
+    content: string;
+    timestamp: number;
+    read: boolean;
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+    if (!supabaseAdmin) {
+        return res.status(500).json({ error: 'Supabase Admin client not initialized. Check environment variables.' });
+    }
+
+    const { method } = req;
+
+    if (method === 'GET') {
+        const { user, otherUser } = req.query;
+
+        if (!user) {
+            return res.status(400).json({ error: 'Missing user parameter' });
+        }
+
+        const userAddress = (user as string).toLowerCase();
+
+        // If otherUser is provided, return messages between user and otherUser
+        if (otherUser) {
+            const otherAddress = (otherUser as string).toLowerCase();
+            
+            const { data: messages, error } = await supabaseAdmin
+                .from('messages')
+                .select('*')
+                .or(`and(sender.eq.${userAddress},receiver.eq.${otherAddress}),and(sender.eq.${otherAddress},receiver.eq.${userAddress})`)
+                .order('timestamp', { ascending: true });
+
+            if (error) {
+                console.error('Error fetching messages:', error);
+                return res.status(500).json({ error: error.message });
+            }
+            
+            return res.status(200).json(messages);
+        }
+
+        // Otherwise, return list of conversations (latest message per contact)
+        // This is complex in SQL/Supabase without a dedicated conversations table or complex query.
+        // We can fetch all messages for the user and process in memory for now, 
+        // or use a better query.
+        // Fetching all messages for user might be heavy if there are many.
+        // Let's try to fetch all distinct contacts first?
+        // Or just fetch all messages involving the user.
+        
+        const { data: messages, error } = await supabaseAdmin
+            .from('messages')
+            .select('*')
+            .or(`sender.eq.${userAddress},receiver.eq.${userAddress}`)
+            .order('timestamp', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching conversations:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        if (!messages) {
+             return res.status(200).json([]);
+        }
+
+        // Process locally to find unique contacts and last message
+        const contacts = new Set<string>();
+        messages.forEach((m: Message) => {
+            if (m.sender.toLowerCase() === userAddress) contacts.add(m.receiver.toLowerCase());
+            if (m.receiver.toLowerCase() === userAddress) contacts.add(m.sender.toLowerCase());
+        });
+
+        const conversations = Array.from(contacts).map(contact => {
+            // Find latest message for this contact
+            // Since messages are already sorted by timestamp desc, find first match
+            const lastMessage = messages.find((m: Message) => 
+                (m.sender.toLowerCase() === userAddress && m.receiver.toLowerCase() === contact) ||
+                (m.sender.toLowerCase() === contact && m.receiver.toLowerCase() === userAddress)
+            );
+            
+            return {
+                contact,
+                lastMessage
+            };
+        }).filter(c => c.lastMessage) // Should always exist
+        .sort((a, b) => b.lastMessage.timestamp - a.lastMessage.timestamp);
+
+        return res.status(200).json(conversations);
+    }
+
+    if (method === 'POST') {
+        const { message, signature, publicKey } = req.body;
+
+        if (!message || !signature || !publicKey) {
+            return res.status(400).json({ error: 'Missing signature, message, or public key' });
+        }
+
+        // Verify signature
+        const verification = verifySignature(message, signature, publicKey);
+        if (!verification.valid) {
+            return res.status(401).json({ error: `Invalid signature: ${verification.error}` });
+        }
+
+        let parsedMessage;
+        try {
+            parsedMessage = JSON.parse(message);
+        } catch (e) {
+            return res.status(400).json({ error: 'Invalid message format' });
+        }
+
+        const { sender, receiver, content } = parsedMessage;
+
+        if (!sender || !receiver || !content) {
+            return res.status(400).json({ error: 'Missing required fields in message' });
+        }
+
+        // Verify sender matches public key
+        try {
+            const pubKeyStr = formatPublicKey(publicKey);
+            const pubKey = new Ed25519PublicKey(pubKeyStr);
+            const derivedAddress = pubKey.authKey().derivedAddress().toString();
+            
+            // Normalize addresses for comparison (lowercase and ensure 0x prefix)
+            const normalize = (addr: string) => {
+                const lower = addr.toLowerCase();
+                return lower.startsWith('0x') ? lower : `0x${lower}`;
+            };
+
+            if (normalize(derivedAddress) !== normalize(sender)) {
+                 return res.status(401).json({ error: 'Public key does not match sender address' });
+            }
+        } catch (e: any) {
+             return res.status(400).json({ error: `Invalid public key: ${e.message}` });
+        }
+
+        const newMessage = {
+            sender: sender.toLowerCase(),
+            receiver: receiver.toLowerCase(),
+            content,
+            timestamp: Date.now(),
+            read: false
+        };
+
+        const { data, error } = await supabaseAdmin
+            .from('messages')
+            .insert([newMessage])
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error sending message:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        // Also mark previous messages from receiver to sender as read
+        // Since the user is replying, they have implicitly read the messages.
+        // This avoids requiring a separate signature just to mark as read.
+        await supabaseAdmin
+            .from('messages')
+            .update({ read: true })
+            .eq('sender', receiver.toLowerCase())
+            .eq('receiver', sender.toLowerCase());
+
+        return res.status(201).json(data);
+    }
+
+    if (method === 'PUT') {
+        // Mark messages as read
+        const { message, signature, publicKey } = req.body;
+        
+        if (!message || !signature || !publicKey) {
+             return res.status(400).json({ error: 'Missing signature, message, or public key' });
+        }
+
+        // Verify signature
+        const verification = verifySignature(message, signature, publicKey);
+        if (!verification.valid) {
+             return res.status(401).json({ error: `Invalid signature: ${verification.error}` });
+        }
+
+        let parsedMessage;
+        try {
+            parsedMessage = JSON.parse(message);
+        } catch (e) {
+            return res.status(400).json({ error: 'Invalid message format' });
+        }
+
+        const { user, otherUser } = parsedMessage;
+        
+        if (!user || !otherUser) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // Verify sender matches public key
+        try {
+            const pubKey = new Ed25519PublicKey(publicKey);
+            const derivedAddress = pubKey.authKey().derivedAddress().toString();
+            
+            const normalize = (addr: string) => {
+                const lower = addr.toLowerCase();
+                return lower.startsWith('0x') ? lower : `0x${lower}`;
+            };
+
+            if (normalize(derivedAddress) !== normalize(user)) {
+                 return res.status(401).json({ error: 'Public key does not match user address' });
+            }
+        } catch (e: any) {
+             return res.status(400).json({ error: `Invalid public key: ${e.message}` });
+        }
+
+        const userAddress = user.toLowerCase();
+        const otherAddress = otherUser.toLowerCase();
+
+        // Update where receiver is user AND sender is otherUser
+        const { error } = await supabaseAdmin
+            .from('messages')
+            .update({ read: true })
+            .eq('receiver', userAddress)
+            .eq('sender', otherAddress)
+            .eq('read', false);
+
+        if (error) {
+            console.error('Error updating read status:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        return res.status(200).json({ success: true });
+    }
+
+    res.setHeader('Allow', ['GET', 'POST', 'PUT']);
+    res.status(405).end(`Method ${method} Not Allowed`);
+}

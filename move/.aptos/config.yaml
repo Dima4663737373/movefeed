@@ -1,0 +1,14 @@
+---
+profiles:
+  default:
+    network: Custom
+    private_key: ed25519-priv-0xbf532c0bbf1d564cd5e5c7a72d636b0012308aec3b9412b4b959324565345739
+    public_key: ed25519-pub-0x35f8671510317d420ab5f1dd35f509a5f5164da1b2b479f563699f149d67df29
+    account: 7e218b2d60d7415e97d11aa67841f2b93948b78060eedb102fb0bf118efad0e4
+    rest_url: "https://testnet.movementnetwork.xyz/v1"
+  movement-new:
+    network: Custom
+    private_key: ed25519-priv-0xf79c0b1632ab7677a2567018b7570e1e3876bc5baaf9fbea304c4c634aa85733
+    public_key: ed25519-pub-0x0938574ed32d9e322cb724e69d23568384f3476c4cb5670934804dc2127a6f6d
+    account: 87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb
+    rest_url: "https://testnet.movementnetwork.xyz/v1"

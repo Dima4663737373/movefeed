@@ -1,0 +1,243 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        /* Default (Dark) - Pure Black/Zinc */
+        --bg-primary: #000000;
+        --text-primary: #e4e4e7;
+        /* Zinc 200 */
+        --text-secondary: #71717a;
+        /* Zinc 500 */
+        --card-bg: #000000;
+        --card-border: #27272a;
+        /* Zinc 800 */
+        --accent: #eab308;
+        /* Yellow 500 - Professional Gold */
+        --accent-dim: rgba(234, 179, 8, 0.1);
+        --btn-text-primary: #000000;
+        --input-bg: #000000;
+        --input-border: #27272a;
+        --hover-bg: #18181b;
+        /* Zinc 900 */
+    }
+
+    [data-theme='light'] {
+        --bg-primary: #ffffff;
+        --text-primary: #0f172a;
+        --text-secondary: #64748b;
+        --card-bg: #ffffff;
+        --card-border: #e2e8f0;
+        --accent: #eab308;
+        --accent-dim: rgba(234, 179, 8, 0.1);
+        --btn-text-primary: #ffffff;
+        --input-bg: #ffffff;
+        --input-border: #cbd5e1;
+        --hover-bg: #f1f5f9;
+    }
+
+    /* Other themes mapped to standard variables but keeping their hues if needed, 
+     but flattening the effects */
+    [data-theme='graphite'] {
+        --bg-primary: #09090b;
+        --text-primary: #fafafa;
+        --text-secondary: #a1a1aa;
+        --card-bg: #09090b;
+        --card-border: #27272a;
+        --accent: #fafafa;
+        --accent-dim: rgba(255, 255, 255, 0.1);
+        --btn-text-primary: #000000;
+        --input-bg: #18181b;
+        --input-border: #27272a;
+        --hover-bg: #27272a;
+    }
+
+    [data-theme='blue'] {
+        --bg-primary: #020617;
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --card-bg: #020617;
+        --card-border: #1e293b;
+        --accent: #3b82f6;
+        --accent-dim: rgba(59, 130, 246, 0.1);
+        --btn-text-primary: #ffffff;
+        --input-bg: #0f172a;
+        --input-border: #1e293b;
+        --hover-bg: #1e293b;
+    }
+
+    [data-theme='emerald'] {
+        --bg-primary: #022c22;
+        --text-primary: #ecfdf5;
+        --text-secondary: #6ee7b7;
+        --card-bg: #022c22;
+        --card-border: #064e3b;
+        --accent: #10b981;
+        --accent-dim: rgba(16, 185, 129, 0.1);
+        --btn-text-primary: #000000;
+        --input-bg: #064e3b;
+        --input-border: #065f46;
+        --hover-bg: #064e3b;
+    }
+
+    body {
+        @apply min-h-screen transition-colors duration-200;
+        color: var(--text-primary);
+        background-color: var(--bg-primary);
+        /* Removed animated gradient */
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+            'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+            sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        @apply font-bold;
+        color: var(--text-primary);
+    }
+}
+
+@layer components {
+
+    /* Minimalist Card - No shadow, simple border */
+    .card {
+        @apply rounded-xl p-4 transition-colors duration-200;
+        background-color: var(--card-bg);
+        border: 1px solid var(--card-border);
+    }
+
+    .card-hover {
+        @apply card;
+    }
+
+    .card-hover:hover {
+        background-color: var(--hover-bg);
+        /* Removed border color change on hover for cleaner look, or make it subtle */
+        border-color: var(--card-border);
+    }
+
+    /* Buttons - Flat and simple */
+    .btn {
+        @apply px-4 py-2 rounded-full font-bold transition-all duration-200 inline-flex items-center justify-center gap-2 text-sm;
+    }
+
+    .btn-primary {
+        @apply btn active:scale-95;
+        background-color: var(--accent);
+        color: var(--btn-text-primary);
+    }
+
+    .btn-primary:hover {
+        opacity: 0.9;
+    }
+
+    .btn-secondary {
+        @apply btn;
+        background-color: transparent;
+        border: 1px solid var(--card-border);
+        color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--hover-bg);
+    }
+
+    .btn-ghost {
+        @apply btn;
+        color: var(--text-secondary);
+        background-color: transparent;
+    }
+
+    .btn-ghost:hover {
+        background-color: var(--hover-bg);
+        color: var(--accent);
+    }
+
+    /* Inputs - Clean borders */
+    .input {
+        @apply w-full px-4 py-3 rounded-lg transition-colors bg-transparent;
+        border: 1px solid var(--input-border);
+        color: var(--text-primary);
+    }
+
+    .input::placeholder {
+        color: var(--text-secondary);
+    }
+
+    .input:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    .container-custom {
+        @apply w-full max-w-[95%] mx-auto px-4 sm:px-6 lg:px-8;
+    }
+
+    /* Navigation - Simplified */
+    .nav {
+        @apply border-b sticky top-0 z-50;
+        border-color: var(--card-border);
+        background-color: rgba(0, 0, 0, 0.8);
+        /* Keep slight blur for readability */
+        backdrop-filter: blur(12px);
+    }
+
+    [data-theme='light'] .nav {
+        background-color: rgba(255, 255, 255, 0.8);
+    }
+
+    .nav-link {
+        @apply transition-colors px-4 py-3 text-lg font-medium flex items-center gap-3;
+        color: var(--text-primary);
+    }
+
+    .nav-link:hover {
+        background-color: var(--hover-bg);
+        border-radius: 9999px;
+        /* Pill shape hover */
+    }
+
+    .nav-link.active {
+        font-weight: 700;
+    }
+
+    /* Utilities */
+    .divider {
+        @apply border-t my-4;
+        border-color: var(--card-border);
+    }
+
+    /* Removed Glow Effects & Animated Gradients classes */
+    /* Kept utility classes for layout/spacing if needed */
+}
+
+@layer utilities {
+    .text-balance {
+        text-wrap: balance;
+    }
+
+    /* Custom Scrollbar - Minimal */
+    ::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--card-border);
+        border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--text-secondary);
+    }
+}
