@@ -86,7 +86,7 @@ export function WalletConnectButton() {
     };
 
     // Filter out unwanted wallets (social logins) and prioritize Petra/Razor
-    const filteredWallets = wallets.filter(wallet => {
+    const filteredWallets = (wallets as any[]).filter(wallet => {
         const name = wallet.name.toLowerCase();
         return !name.includes('google') && !name.includes('facebook') && !name.includes('twitter') && !name.includes('discord');
     });

@@ -34,8 +34,8 @@ function AutoReconnect({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         // Save wallet name and address when connected
-        if (connected && wallet?.name && account?.address) {
-            localStorage.setItem('aptos-wallet-name', wallet.name);
+        if (connected && (wallet as any)?.name && account?.address) {
+            localStorage.setItem('aptos-wallet-name', (wallet as any).name);
             localStorage.setItem('movement_last_connected_address', account.address.toString());
         }
     }, [connected, wallet, account]);

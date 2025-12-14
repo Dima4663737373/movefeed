@@ -17,10 +17,12 @@
     "@telegram-apps/bridge": "^2.11.0",
     "@types/dompurify": "^3.0.5",
     "@types/formidable": "^3.4.6",
+    "@wallet-standard/core": "^1.1.1",
+    "aptos": "^1.22.1",
     "dompurify": "^3.3.0",
     "formidable": "^3.5.4",
     "got": "^14.6.5",
-    "next": "15.0.3",
+    "next": "^16.0.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "viem": "^2.41.2"
@@ -32,7 +34,7 @@
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.1",
-    "eslint-config-next": "^15.0.3",
+    "eslint-config-next": "^16.0.10",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.3"
