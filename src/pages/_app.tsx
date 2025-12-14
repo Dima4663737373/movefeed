@@ -8,6 +8,7 @@
 
 import "@/styles/globals.css";
 import type { AppProps } from "next/app";
+import { useRouter } from "next/router";
 import { WalletProvider } from "@/components/WalletProvider";
 import { useEffect } from "react";
 
@@ -28,6 +29,9 @@ function TipMonitor() {
 }
 
 export default function App({ Component, pageProps }: AppProps) {
+    const router = useRouter();
+    const isLandingPage = router.pathname === "/";
+
     useEffect(() => {
         // Suppress Nightly Wallet extension errors causing Next.js overlay crash
         const handleError = (event: ErrorEvent) => {
@@ -55,10 +59,12 @@ export default function App({ Component, pageProps }: AppProps) {
                         <TipMonitor />
                         <BackgroundGradient />
                         <Component {...pageProps} />
-                        {/* Fixed notification button */}
-                        <div className="fixed top-7 right-4 z-[9999]">
-                            <NotificationButton />
-                        </div>
+                        {/* Fixed notification button - hidden on landing page */}
+                        {!isLandingPage && (
+                            <div className="fixed top-7 right-4 z-[9999]">
+                                <NotificationButton />
+                            </div>
+                        )}
                     </NotificationsProvider>
                 </WalletProvider>
             </ThemeProvider>
