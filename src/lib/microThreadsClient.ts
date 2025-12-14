@@ -25,6 +25,7 @@ export interface OnChainPost {
 }
 
 const config = new AptosConfig({
+    network: Network.CUSTOM,
     fullnode: MOVEMENT_TESTNET_RPC,
 });
 const aptos = new Aptos(config);

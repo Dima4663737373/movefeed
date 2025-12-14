@@ -14,6 +14,7 @@ import { MOVEMENT_TESTNET_RPC, MOVEMENT_TESTNET_INDEXER, convertToMovementAddres
  */
 export function getAptosClient(): Aptos {
   const config = new AptosConfig({
+    network: Network.CUSTOM,
     fullnode: MOVEMENT_TESTNET_RPC,
     indexer: MOVEMENT_TESTNET_INDEXER,
     // We use a custom network since Movement is not in the default Aptos Network enum
@@ -175,13 +176,15 @@ export async function getTipHistory(targetAddress?: string) {
     // 1. Fetch Tips from Events (Received AND Sent)
     let onChainTips: any[] = [];
     try {
-      const client = getAptosClient();
-      const eventType = `${TIPJAR_MODULE_ADDRESS}::MoveFeed::TipEvent`;
+      // const client = getAptosClient();
+      // const eventType = `${TIPJAR_MODULE_ADDRESS}::MoveFeed::TipEvent`;
 
       // Fetch events from the module
-      const events = await client.getModuleEventsByEventType({
+      // TODO: Update to use new Aptos SDK Indexer API as getModuleEventsByEventType is deprecated
+      const events: any[] = []; 
+      /* await client.getModuleEventsByEventType({
         eventType: eventType as `${string}::${string}::${string}`,
-      });
+      }); */
 
       onChainTips = events
         .filter((e: any) => {

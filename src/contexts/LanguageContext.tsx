@@ -107,6 +107,7 @@ interface Translations {
     copyAddress: string;
     profileUpdated: string;
     profileUpdateError: string;
+    imageTooLarge: string;
     imageTooLarge5MB: string;
 
     // TipHistory
@@ -294,6 +295,7 @@ const translations: Record<Language, Translations> = {
         copyAddress: 'Copy Address',
         profileUpdated: 'Profile updated successfully!',
         profileUpdateError: 'Failed to update profile. Please try again.',
+        imageTooLarge: 'Image too large for on-chain storage. Please try a smaller image.',
         imageTooLarge5MB: 'Image too large (max 5MB)',
 
         activity: 'Activity',
@@ -471,8 +473,9 @@ const translations: Record<Language, Translations> = {
         noPostsTitle: 'Поки немає постів',
         noPostsDesc: 'Цей користувач ще нічого не опублікував.',
         copyAddress: 'Копіювати адресу',
-        profileUpdated: 'Профіль успішно оновлено!',
+        profileUpdated: 'Профіль оновлено!',
         profileUpdateError: 'Не вдалося оновити профіль. Спробуйте ще раз.',
+        imageTooLarge: 'Зображення занадто велике для зберігання в блокчейні. Спробуйте менше.',
         imageTooLarge5MB: 'Зображення занадто велике (макс 5MB)',
 
         activity: 'Активність',

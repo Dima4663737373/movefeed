@@ -8,13 +8,13 @@ import { useLanguage } from '@/contexts/LanguageContext';
 export interface Notification {
     id: string;
     message: string;
-    type: 'success' | 'info';
+    type: 'success' | 'info' | 'error';
     timestamp: number;
     read: boolean;
 }
 
 interface NotificationsContextType {
-    addNotification: (message: string, type?: 'success' | 'info') => void;
+    addNotification: (message: string, type?: 'success' | 'info' | 'error') => void;
     markAsRead: (notificationId?: string) => Promise<void>;
     unreadCount: number;
     notifications: Notification[];
@@ -97,7 +97,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         };
     }, [account?.address]);
 
-    const addNotification = useCallback((message: string, type: 'success' | 'info' = 'success') => {
+    const addNotification = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
         const newNotification: Notification = {
             id: Math.random().toString(36).substring(2, 9),
             message,
@@ -298,7 +298,7 @@ export function NotificationButton() {
                                     key={notification.id}
                                     className={`p-4 border-b border-white/5 hover:bg-white/5 transition-colors flex gap-3 ${!notification.read ? 'bg-white/5' : ''}`}
                                 >
-                                    <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${notification.type === 'success' ? 'bg-green-500' : 'bg-blue-500'}`} />
+                                    <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${notification.type === 'success' ? 'bg-green-500' : notification.type === 'error' ? 'bg-red-500' : 'bg-blue-500'}`} />
                                     <div>
                                         <p className="text-sm text-white leading-snug">{notification.message}</p>
                                         <p className="text-xs text-neutral-500 mt-1">
