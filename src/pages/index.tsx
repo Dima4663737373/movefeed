@@ -71,7 +71,7 @@ export default function Home() {
                         <div className="max-w-5xl mx-auto text-center">
                             {/* Badge */}
                             <div className="mb-8 flex justify-center animate-fade-in">
-                                <div className="badge-yellow backdrop-blur-md border border-[var(--accent)]/20 shadow-[0_0_20px_-5px_rgba(234,179,8,0.3)]">
+                                <div className="badge-yellow backdrop-blur-md shadow-[0_0_20px_-5px_rgba(234,179,8,0.3)]">
                                     <span className="inline-block w-2 h-2 bg-[var(--accent)] rounded-full animate-pulse mr-2"></span>
                                     {t.poweredBy}
                                 </div>
