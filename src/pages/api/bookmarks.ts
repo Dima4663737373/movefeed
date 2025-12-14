@@ -33,7 +33,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                      return res.status(500).json({ error: error.message });
                 }
 
-                return res.status(200).json({ bookmarked: !!data });
+                // Also get total count
+                const { count, error: countError } = await supabaseAdmin
+                    .from('bookmarks')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('post_id', pid);
+
+                if (countError) {
+                    console.error("Error fetching bookmark count:", countError);
+                }
+
+                return res.status(200).json({ bookmarked: !!data, count: count || 0 });
+            }
+
+            if (postId) {
+                // Just get count
+                const pid = postId as string;
+                const { count, error: countError } = await supabaseAdmin
+                    .from('bookmarks')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('post_id', pid);
+                
+                if (countError) {
+                    return res.status(500).json({ error: countError.message });
+                }
+
+                return res.status(200).json({ count: count || 0, bookmarked: false });
             }
 
             if (userAddress) {
@@ -157,7 +182,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 if (error) {
                     return res.status(500).json({ error: error.message });
                 }
-                return res.status(200).json({ bookmarked: false });
+
+                // Get updated count
+                const { count } = await supabaseAdmin
+                    .from('bookmarks')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('post_id', pid);
+
+                return res.status(200).json({ bookmarked: false, count: count || 0 });
             } else {
                 // Add bookmark
                 const { error } = await supabaseAdmin
@@ -172,7 +204,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 if (error) {
                     return res.status(500).json({ error: error.message });
                 }
-                return res.status(200).json({ bookmarked: true });
+
+                // Get updated count
+                const { count } = await supabaseAdmin
+                    .from('bookmarks')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('post_id', pid);
+
+                return res.status(200).json({ bookmarked: true, count: count || 0 });
             }
         } else if (req.method === 'DELETE') {
             // Typically DELETE shouldn't have a body, but Next.js supports it.

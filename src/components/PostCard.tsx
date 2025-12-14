@@ -131,6 +131,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
     
     // Bookmark state
     const [isBookmarked, setIsBookmarked] = useState(initialIsBookmarked);
+    const [bookmarkCount, setBookmarkCount] = useState(0);
     const [bookmarking, setBookmarking] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -147,6 +148,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
     // Comments state
     const [comments, setComments] = useState<OnChainPost[]>([]);
+    const [commentCount, setCommentCount] = useState(post.commentCount || 0);
     const [loadingComments, setLoadingComments] = useState(false);
     
     // Helper to format content with clickable links and hashtags
@@ -331,21 +333,19 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
     // Check bookmark status
     useEffect(() => {
-        // If initialIsBookmarked is true, we assume it's true (e.g. bookmarks page)
-        // We only check if it's not explicitly set to true initially, or we want to verify
-        if (initialIsBookmarked) {
-            setIsBookmarked(true);
-            return;
-        }
-
         const checkBookmark = async () => {
-            if (!account?.address) return;
             try {
                 const postId = post.global_id !== undefined ? post.global_id : post.id;
-                const res = await fetch(`/api/bookmarks?userAddress=${account.address}&postId=${postId}`);
+                let url = `/api/bookmarks?postId=${postId}`;
+                if (account?.address) {
+                    url += `&userAddress=${account.address}`;
+                }
+
+                const res = await fetch(url);
                 if (res.ok) {
                     const data = await res.json();
-                    setIsBookmarked(data.bookmarked);
+                    if (data.bookmarked !== undefined) setIsBookmarked(data.bookmarked);
+                    if (data.count !== undefined) setBookmarkCount(data.count);
                 }
             } catch (e) {
                 console.error("Error checking bookmark", e);
@@ -353,6 +353,33 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         };
         checkBookmark();
     }, [post.id, post.global_id, account?.address, initialIsBookmarked]);
+
+    // Fetch comment count if needed
+    useEffect(() => {
+        if (post.commentCount !== undefined) {
+             setCommentCount(post.commentCount);
+             return;
+        }
+        
+        // If comments are already loaded, use that length
+        if (comments.length > 0) {
+            setCommentCount(comments.length);
+            return;
+        }
+
+        // Only fetch if we are in feed view (comments hidden) and count is unknown
+        if (hideComments) {
+            const fetchCount = async () => {
+                try {
+                    const fetched = await getCommentsForPost(parseInt(post.id));
+                    setCommentCount(fetched.length);
+                } catch (e) {
+                    // console.error("Error fetching comment count", e);
+                }
+            };
+            fetchCount();
+        }
+    }, [post.id, post.commentCount, comments.length, hideComments]);
 
     // Fetch comments
     useEffect(() => {
@@ -460,8 +487,16 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
             return;
         }
 
+        const wasBookmarked = isBookmarked;
+        const previousCount = bookmarkCount;
+
         try {
             setBookmarking(true);
+            
+            // Optimistic update
+            setIsBookmarked(!wasBookmarked);
+            setBookmarkCount(prev => wasBookmarked ? Math.max(0, prev - 1) : prev + 1);
+
             // Direct bookmark without signature (User Request: Remove popup)
             const res = await fetch('/api/bookmarks', {
                 method: 'POST',
@@ -476,14 +511,21 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
             if (res.ok) {
                 const data = await res.json();
                 setIsBookmarked(data.bookmarked);
+                if (data.count !== undefined) setBookmarkCount(data.count);
                 window.dispatchEvent(new Event('bookmark_changed'));
             } else {
                 console.error("Bookmark failed", await res.text());
                 addNotification("Failed to bookmark", "error", { persist: true });
+                // Revert
+                setIsBookmarked(wasBookmarked);
+                setBookmarkCount(previousCount);
             }
         } catch (e) {
             console.error("Error bookmarking", e);
             addNotification("Error bookmarking", "error", { persist: true });
+            // Revert
+            setIsBookmarked(wasBookmarked);
+            setBookmarkCount(previousCount);
         } finally {
             setBookmarking(false);
         }
@@ -968,7 +1010,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                     </svg>
                                 </div>
                                 <span className="text-sm font-medium">
-                                    {post.commentCount && post.commentCount > 0 ? post.commentCount : t.replyButton}
+                                    {commentCount > 0 ? commentCount : t.replyButton}
                                 </span>
                             </button>
 
@@ -1120,6 +1162,9 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                                     </svg>
                                 </div>
+                                {bookmarkCount > 0 && (
+                                    <span className="text-sm font-medium">{bookmarkCount}</span>
+                                )}
                             </button>
 
                             {/* Share Button */}
