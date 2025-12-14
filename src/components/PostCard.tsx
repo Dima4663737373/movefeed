@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { formatMovementAddress, octasToMove } from '@/lib/movement';
-import { formatRelativeTime } from '@/lib/utils';
+import { formatRelativeTime, formatPostTime, formatPostStatsDate } from '@/lib/utils';
 import { getDisplayName, getAvatar, deletePostOnChain, editPostOnChain, getPost, getCommentsForPost, OnChainPost, createPostOnChain } from '@/lib/microThreadsClient';
 import { saveLocalTransaction } from '@/lib/movementClient';
 import { sendTipToPost } from '@/lib/movementTx';
@@ -51,7 +51,7 @@ interface PostCardProps {
 
 export default function PostCard({ post, isOwner, showTipButton = true, initialIsBookmarked = false, hideComments = false }: PostCardProps) {
     const router = useRouter();
-    const { account, signAndSubmitTransaction, signMessage } = useWallet();
+    const { account, signAndSubmitTransaction, signMessage, network } = useWallet();
     const { t } = useLanguage();
     const { addNotification } = useNotifications();
     const [displayName, setDisplayName] = useState<string>(post.creatorHandle || '');
@@ -60,6 +60,16 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
     const [tipAmount, setTipAmount] = useState('1');
     const [showTipInput, setShowTipInput] = useState(false);
     const [votes, setVotes] = useState({ up: 0, down: 0 });
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const savedTip = localStorage.getItem('default_tip_amount');
+            if (savedTip) {
+                setTipAmount(savedTip);
+            }
+        }
+    }, []);
+
     const [userVote, setUserVote] = useState<'up' | 'down' | null>(null);
     const [voting, setVoting] = useState(false);
 
@@ -109,11 +119,11 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                 signAndSubmitTransaction
             );
             
-            addNotification(t.postCreatedSuccess, "success");
+            addNotification(t.postCreatedSuccess, "success", { persist: false });
             window.dispatchEvent(new Event('tip_sent')); // Refresh feed
         } catch (error) {
             console.error("Repost failed", error);
-            addNotification(t.postCreationError, "error");
+            addNotification(t.postCreationError, "error", { persist: true });
         } finally {
             setIsReposting(false);
         }
@@ -127,7 +137,10 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
     // Editing state
     const [isEditing, setIsEditing] = useState(false);
-    const [editContent, setEditContent] = useState(post.content);
+    // Initialize editContent without the ref tag if it exists
+    const [editContent, setEditContent] = useState(() => {
+        return post.content.replace(/\[ref:[a-f0-9\-]+\]/g, '').trim();
+    });
     const [editImage, setEditImage] = useState(post.image_url || '');
     const [isSaving, setIsSaving] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
@@ -179,10 +192,47 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
     // Local post state for optimistic updates
     const [localPost, setLocalPost] = useState(post);
+    const [viewCount, setViewCount] = useState(0);
 
     useEffect(() => {
         setLocalPost(post);
     }, [post]);
+
+    // Fetch and increment views
+    useEffect(() => {
+        let mounted = true;
+
+        const handleViews = async () => {
+            try {
+                // If detailed view (comments not hidden), increment view count
+                // Use session storage to prevent duplicate counts per session
+                if (!hideComments) {
+                    const viewedKey = `viewed_${post.id}`;
+                    if (!sessionStorage.getItem(viewedKey)) {
+                        await fetch('/api/views', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ postId: post.id })
+                        });
+                        sessionStorage.setItem(viewedKey, 'true');
+                    }
+                }
+
+                // Fetch current view count
+                const res = await fetch(`/api/views?postId=${post.id}`);
+                if (res.ok && mounted) {
+                    const data = await res.json();
+                    setViewCount(data.viewCount);
+                }
+            } catch (e) {
+                console.error("Error handling views:", e);
+            }
+        };
+
+        handleViews();
+
+        return () => { mounted = false; };
+    }, [post.id, hideComments]);
 
     useEffect(() => {
         const fetchMediaAndMetadata = async () => {
@@ -397,7 +447,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
             // Revert on error
             setUserVote(previousUserVote);
             setVotes(previousVotes);
-            addNotification(t.voteError, "info");
+            addNotification(t.voteError, "error", { persist: true });
         } finally {
             setVoting(false);
         }
@@ -429,11 +479,11 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                 window.dispatchEvent(new Event('bookmark_changed'));
             } else {
                 console.error("Bookmark failed", await res.text());
-                addNotification("Failed to bookmark", "error");
+                addNotification("Failed to bookmark", "error", { persist: true });
             }
         } catch (e) {
             console.error("Error bookmarking", e);
-            addNotification("Error bookmarking", "error");
+            addNotification("Error bookmarking", "error", { persist: true });
         } finally {
             setBookmarking(false);
         }
@@ -441,18 +491,53 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
     const handleTip = async (e: React.MouseEvent) => {
         e.stopPropagation();
+        console.log("Tip button clicked");
+
         if (!account) {
+            console.log("No account connected");
             alert(t.connectWallet);
             return;
         }
 
+        if (network && network.name) {
+            const name = network.name.toLowerCase();
+            if (name.includes('mainnet')) {
+                console.error("Wrong network:", network.name);
+                addNotification("Please switch to Movement Bardock Testnet", "error", { persist: false });
+                return;
+            }
+        }
+
+        console.log("Account connected:", account.address);
+        console.log("SignAndSubmit defined:", !!signAndSubmitTransaction);
+
         try {
             setTipping(true);
-            const txHash = await sendTipToPost({
+            console.log("Preparing to send tip...");
+
+            const params = {
                 creatorAddress: post.creatorAddress,
                 postId: parseInt(post.id),
                 amount: parseFloat(tipAmount)
-            }, signAndSubmitTransaction);
+            };
+            
+            console.log("Tip params:", params);
+
+            if (isNaN(params.postId)) {
+                console.error("Invalid postId:", post.id);
+                addNotification("Invalid Post ID", "error", { persist: false });
+                return;
+            }
+
+            if (isNaN(params.amount) || params.amount <= 0) {
+                console.error("Invalid amount:", tipAmount);
+                addNotification("Invalid tip amount", "error", { persist: false });
+                return;
+            }
+
+            console.log("Calling sendTipToPost...");
+            const txHash = await sendTipToPost(params, signAndSubmitTransaction);
+            console.log("sendTipToPost returned hash:", txHash);
 
             // Save to local storage for immediate UI update
             if (account?.address) {
@@ -470,10 +555,10 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
             setShowTipInput(false);
             await new Promise(resolve => setTimeout(resolve, 3000));
             window.dispatchEvent(new Event('tip_sent'));
-            addNotification(t.tipSuccess, "success");
+            addNotification(t.tipSuccess, "success", { persist: false });
         } catch (error) {
-            console.error("Tip failed:", error);
-            addNotification(t.tipError, "info");
+            console.error("Tip failed details:", error);
+            addNotification(t.tipError + ": " + (error instanceof Error ? error.message : String(error)), "error", { persist: true });
         } finally {
             setTipping(false);
         }
@@ -487,12 +572,12 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         console.log("File selected:", file.name, file.size);
 
         if (file.size > 10 * 1024 * 1024) {
-            addNotification(t.imageTooLargeError, "info");
+            addNotification(t.imageTooLargeError, "info", { persist: false });
             e.target.value = ''; // Reset input
             return;
         }
 
-        addNotification(t.processingImage, "info");
+        addNotification(t.processingImage, "info", { persist: false });
 
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -541,7 +626,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                     }
                 }
                 if (!success) {
-                    addNotification(t.compressionError, "info");
+                    addNotification(t.compressionError, "info", { persist: false });
                 }
                 e.target.value = ''; // Reset input after processing
             };
@@ -557,21 +642,29 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         }
         try {
             setIsSaving(true);
-            await editPostOnChain(parseInt(post.id), editContent, editImage, signAndSubmitTransaction);
+            
+            // Preserve ref tag if it exists in the original post
+            let finalContent = editContent;
+            const refMatch = post.content.match(/\[ref:[a-f0-9\-]+\]/);
+            if (refMatch) {
+                finalContent = `${finalContent}\n${refMatch[0]}`;
+            }
+
+            await editPostOnChain(parseInt(post.id), finalContent, editImage, signAndSubmitTransaction);
             
             // Optimistic update
             setLocalPost(prev => ({
                 ...prev,
-                content: editContent,
+                content: finalContent,
                 image_url: editImage
             }));
 
             setIsEditing(false);
-            addNotification(t.postUpdated, "success");
+            addNotification(t.postUpdated, "success", { persist: false });
             setTimeout(() => window.dispatchEvent(new Event('tip_sent')), 3000);
         } catch (error) {
             console.error("Edit failed:", error);
-            addNotification(t.postUpdateError, "info");
+            addNotification(t.postUpdateError, "error", { persist: true });
         } finally {
             setIsSaving(false);
         }
@@ -582,11 +675,11 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         try {
             setIsDeleting(true);
             await deletePostOnChain(parseInt(post.id), signAndSubmitTransaction);
-            addNotification(t.postDeleted, "success");
+            addNotification(t.postDeleted, "success", { persist: false });
             setTimeout(() => window.dispatchEvent(new Event('tip_sent')), 3000);
         } catch (error) {
             console.error("Delete failed:", error);
-            addNotification(t.postDeleteError, "info");
+            addNotification(t.postDeleteError, "error", { persist: true });
             setIsDeleting(false);
         }
     };
@@ -653,9 +746,17 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                     @{post.creatorAddress.slice(0, 6)}...
                                 </span>
                                 <span className="text-[var(--text-secondary)] text-sm">·</span>
-                                <span className="text-[var(--text-secondary)] text-sm whitespace-nowrap">
-                                    {formatRelativeTime(post.createdAt)}
+                                <span className="text-[var(--text-secondary)] text-sm whitespace-nowrap" title={new Date(post.createdAt).toLocaleString()}>
+                                    {formatPostTime(post.createdAt, router.pathname.startsWith('/post/'))}
                                 </span>
+                                {post.updatedAt && post.updatedAt > post.createdAt + 1000 && (
+                                    <span 
+                                        className="text-[var(--text-secondary)] text-sm ml-1 whitespace-nowrap" 
+                                        title={`Edited: ${new Date(post.updatedAt).toLocaleString()}`}
+                                    >
+                                        · Edited {formatPostTime(post.updatedAt, false)}
+                                    </span>
+                                )}
                             </div>
 
                             {/* Menu/Actions */}
@@ -669,7 +770,11 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         </button>
                                         <div className="absolute right-0 mt-2 w-32 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
                                             <button
-                                                onClick={() => setIsEditing(true)}
+                                                onClick={() => {
+                                                    // Strip ref tag when entering edit mode
+                                                    setEditContent(post.content.replace(/\[ref:[a-f0-9\-]+\]/g, '').trim());
+                                                    setIsEditing(true);
+                                                }}
                                                 className="w-full text-left px-4 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--hover-bg)] first:rounded-t-lg"
                                             >
                                                 {t.edit}
@@ -777,7 +882,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                                 @{repostedPost.creator.slice(0, 6)}...
                                             </span>
                                             <span className="text-[var(--text-secondary)] text-xs">
-                                                · {formatRelativeTime(repostedPost.timestamp)}
+                                                · {formatPostTime(repostedPost.timestamp * 1000, false)}
                                             </span>
                                         </div>
                                         <div className="text-sm text-[var(--text-primary)] whitespace-pre-wrap line-clamp-3">
@@ -841,6 +946,14 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                 ) : null}
                             </div>
                         )}
+
+                        {/* Post Stats Footer */}
+                        <div className="flex items-center gap-1 mt-3 text-[var(--text-secondary)] text-[15px] leading-5 border-b border-[var(--card-border)] pb-3" onClick={(e) => e.stopPropagation()}>
+                            <span className="hover:underline cursor-pointer">{formatPostStatsDate(localPost.createdAt)}</span>
+                            <span>·</span>
+                            <span className="font-bold text-[var(--text-primary)]">{viewCount}</span>
+                            <span>Views</span>
+                        </div>
 
                         {/* Action Bar */}
                         <div className="flex items-center justify-between mt-3 max-w-md" onClick={(e) => e.stopPropagation()}>
@@ -1017,10 +1130,10 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                     const url = `${window.location.origin}/post/${post.id}`;
                                     navigator.clipboard.writeText(url).then(() => {
                                         setIsCopied(true);
-                                        addNotification("Link copied to clipboard", "success");
+                                        addNotification("Link copied to clipboard", "success", { persist: false, duration: 1500 });
                                         setTimeout(() => setIsCopied(false), 2000);
                                     }).catch(() => {
-                                        addNotification("Failed to copy link", "error");
+                                        addNotification("Failed to copy link", "error", { persist: false });
                                     });
                                 }}
                                 title="Copy link"
@@ -1042,34 +1155,36 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
                         {/* Comments Preview (Max 3) */}
                         {comments.length > 0 && (
-                            <div className="mt-3 space-y-2 border-t border-[var(--card-border)] pt-3" onClick={(e) => e.stopPropagation()}>
+                            <div className="mt-2 pt-1" onClick={(e) => e.stopPropagation()}>
                                 {comments.slice(0, 3).map((comment) => (
-                                    <div key={comment.id} className="flex gap-2 p-2 rounded-lg hover:bg-[var(--hover-bg)] cursor-pointer" onClick={() => router.push(`/post/${comment.id}`)}>
-                                        <div className="flex-shrink-0">
-                                            <div className="w-6 h-6 rounded-full bg-[var(--card-border)] overflow-hidden">
-                                                <div className="w-full h-full flex items-center justify-center font-bold text-xs text-[var(--text-primary)]">
-                                                    {comment.creator[0].toUpperCase()}
+                                    <div key={comment.id} className="relative ml-6 pl-3 border-l-2 border-[var(--card-border)] mt-2 hover:border-[var(--accent)] transition-colors group">
+                                        <div className="flex gap-2 p-1.5 rounded-r-lg hover:bg-[var(--hover-bg)] cursor-pointer" onClick={() => router.push(`/post/${comment.id}`)}>
+                                            <div className="flex-shrink-0">
+                                                <div className="w-5 h-5 rounded-full bg-[var(--card-border)] overflow-hidden">
+                                                    <div className="w-full h-full flex items-center justify-center font-bold text-[10px] text-[var(--text-primary)]">
+                                                        {comment.creator[0].toUpperCase()}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        <div className="flex-grow min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-bold text-xs text-[var(--text-primary)]">
-                                                    @{comment.creator.slice(0, 6)}...
-                                                </span>
-                                                <span className="text-[var(--text-secondary)] text-xs">
-                                                    · {formatRelativeTime(comment.timestamp * 1000)}
-                                                </span>
+                                            <div className="flex-grow min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-[11px] text-[var(--text-primary)] opacity-90">
+                                                        @{comment.creator.slice(0, 6)}...
+                                                    </span>
+                                                    <span className="text-[var(--text-secondary)] text-[10px]">
+                                                        · {formatRelativeTime(comment.timestamp * 1000)}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-[var(--text-primary)] line-clamp-2 opacity-90">
+                                                    {comment.content}
+                                                </p>
                                             </div>
-                                            <p className="text-sm text-[var(--text-primary)] line-clamp-2">
-                                                {comment.content}
-                                            </p>
                                         </div>
                                     </div>
                                 ))}
                                 {comments.length > 3 && (
                                     <button 
-                                        className="text-xs text-[var(--accent)] hover:underline w-full text-left pl-10"
+                                        className="text-[10px] text-[var(--accent)] hover:underline w-full text-left ml-6 pl-3 mt-2"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             router.push(`/post/${post.id}`);

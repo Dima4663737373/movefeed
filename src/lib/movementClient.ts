@@ -356,10 +356,13 @@ export async function getGasEstimation(): Promise<GasEstimation> {
 export async function getStats() {
   try {
     // Import here to avoid circular dependency
-    const { Aptos, AptosConfig } = await import('@aptos-labs/ts-sdk');
+    const { Aptos, AptosConfig, Network } = await import('@aptos-labs/ts-sdk');
     const { MOVEMENT_TESTNET_RPC, TIPJAR_MODULE_ADDRESS, octasToMove } = await import('./movement');
 
-    const config = new AptosConfig({ fullnode: MOVEMENT_TESTNET_RPC });
+    const config = new AptosConfig({ 
+        network: Network.CUSTOM,
+        fullnode: MOVEMENT_TESTNET_RPC 
+    });
     const aptos = new Aptos(config);
     const MODULE_NAME = "MoveFeedV3";
 

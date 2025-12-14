@@ -91,6 +91,7 @@
             sans-serif;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+        overflow-x: hidden;
     }
 
     h1,
@@ -99,145 +100,115 @@
     h4,
     h5,
     h6 {
-        @apply font-bold;
+        @apply font-bold tracking-tight;
         color: var(--text-primary);
     }
 }
 
 @layer components {
-
-    /* Minimalist Card - No shadow, simple border */
-    .card {
-        @apply rounded-xl p-4 transition-colors duration-200;
-        background-color: var(--card-bg);
-        border: 1px solid var(--card-border);
-    }
-
-    .card-hover {
-        @apply card;
-    }
-
-    .card-hover:hover {
-        background-color: var(--hover-bg);
-        /* Removed border color change on hover for cleaner look, or make it subtle */
-        border-color: var(--card-border);
-    }
-
-    /* Buttons - Flat and simple */
-    .btn {
-        @apply px-4 py-2 rounded-full font-bold transition-all duration-200 inline-flex items-center justify-center gap-2 text-sm;
-    }
-
     .btn-primary {
-        @apply btn active:scale-95;
-        background-color: var(--accent);
-        color: var(--btn-text-primary);
-    }
-
-    .btn-primary:hover {
-        opacity: 0.9;
+        @apply bg-[var(--accent)] text-[var(--btn-text-primary)] px-4 py-2 rounded-full font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed;
     }
 
     .btn-secondary {
-        @apply btn;
-        background-color: transparent;
-        border: 1px solid var(--card-border);
-        color: var(--text-primary);
+        @apply bg-transparent border border-[var(--card-border)] text-[var(--text-primary)] px-4 py-2 rounded-full font-bold hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
     }
 
-    .btn-secondary:hover {
-        background-color: var(--hover-bg);
+    .card {
+        @apply bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-4;
     }
 
-    .btn-ghost {
-        @apply btn;
-        color: var(--text-secondary);
-        background-color: transparent;
-    }
-
-    .btn-ghost:hover {
-        background-color: var(--hover-bg);
-        color: var(--accent);
-    }
-
-    /* Inputs - Clean borders */
-    .input {
-        @apply w-full px-4 py-3 rounded-lg transition-colors bg-transparent;
-        border: 1px solid var(--input-border);
-        color: var(--text-primary);
-    }
-
-    .input::placeholder {
-        color: var(--text-secondary);
-    }
-
-    .input:focus {
-        outline: none;
-        border-color: var(--accent);
+    .input-field {
+        @apply bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--text-primary)] rounded-lg px-4 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all;
     }
 
     .container-custom {
-        @apply w-full max-w-[95%] mx-auto px-4 sm:px-6 lg:px-8;
+        @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
     }
-
-    /* Navigation - Simplified */
-    .nav {
-        @apply border-b sticky top-0 z-50;
-        border-color: var(--card-border);
-        background-color: rgba(0, 0, 0, 0.8);
-        /* Keep slight blur for readability */
-        backdrop-filter: blur(12px);
-    }
-
-    [data-theme='light'] .nav {
-        background-color: rgba(255, 255, 255, 0.8);
-    }
-
-    .nav-link {
-        @apply transition-colors px-4 py-3 text-lg font-medium flex items-center gap-3;
-        color: var(--text-primary);
-    }
-
-    .nav-link:hover {
-        background-color: var(--hover-bg);
-        border-radius: 9999px;
-        /* Pill shape hover */
-    }
-
-    .nav-link.active {
-        font-weight: 700;
-    }
-
-    /* Utilities */
-    .divider {
-        @apply border-t my-4;
-        border-color: var(--card-border);
-    }
-
-    /* Removed Glow Effects & Animated Gradients classes */
-    /* Kept utility classes for layout/spacing if needed */
 }
 
-@layer utilities {
-    .text-balance {
-        text-wrap: balance;
-    }
+/* Animations */
+@keyframes blob {
+    0% { transform: translate(0px, 0px) scale(1); }
+    33% { transform: translate(30px, -50px) scale(1.1); }
+    66% { transform: translate(-20px, 20px) scale(0.9); }
+    100% { transform: translate(0px, 0px) scale(1); }
+}
 
-    /* Custom Scrollbar - Minimal */
-    ::-webkit-scrollbar {
-        width: 6px;
-    }
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0px); }
+}
 
-    ::-webkit-scrollbar-track {
-        background: transparent;
-    }
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 
-    ::-webkit-scrollbar-thumb {
-        background: var(--card-border);
-        border-radius: 3px;
-    }
+@keyframes shine {
+    0% { background-position: 200% center; }
+    100% { background-position: -200% center; }
+}
 
-    ::-webkit-scrollbar-thumb:hover {
-        background: var(--text-secondary);
-    }
+.animate-blob {
+    animation: blob 7s infinite;
+}
+
+.animate-float {
+    animation: float 6s ease-in-out infinite;
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.8s ease-out forwards;
+    opacity: 0;
+}
+
+.animate-fade-in-delay-1 {
+    animation: fadeIn 0.8s ease-out 0.2s forwards;
+    opacity: 0;
+}
+
+.animate-fade-in-delay-2 {
+    animation: fadeIn 0.8s ease-out 0.4s forwards;
+    opacity: 0;
+}
+
+.animate-fade-in-delay-3 {
+    animation: fadeIn 0.8s ease-out 0.6s forwards;
+    opacity: 0;
+}
+
+.animation-delay-2000 {
+    animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+    animation-delay: 4s;
+}
+
+.text-gradient-gold {
+    background: linear-gradient(to right, #fbbf24, #d97706, #fbbf24);
+    background-size: 200% auto;
+    color: transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: shine 4s linear infinite;
+}
+
+.card-hover-effect {
+    transition: all 0.3s ease;
+}
+
+.card-hover-effect:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 40px -10px rgba(234, 179, 8, 0.15);
+    border-color: var(--accent);
+}
+
+.bg-grid-pattern {
+    background-size: 40px 40px;
+    background-image: linear-gradient(to right, var(--card-border) 1px, transparent 1px),
+                      linear-gradient(to bottom, var(--card-border) 1px, transparent 1px);
+    mask-image: radial-gradient(circle at center, black 40%, transparent 80%);
 }

@@ -14,11 +14,18 @@ export interface Notification {
 }
 
 interface NotificationsContextType {
-    addNotification: (message: string, type?: 'success' | 'info' | 'error') => void;
+    addNotification: (message: string, type?: 'success' | 'info' | 'error', options?: { persist?: boolean; duration?: number }) => void;
     markAsRead: (notificationId?: string) => Promise<void>;
     unreadCount: number;
     notifications: Notification[];
     setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
+}
+
+interface Toast {
+    id: string;
+    message: string;
+    type: 'success' | 'info' | 'error';
+    duration: number;
 }
 
 const NotificationsContext = createContext<NotificationsContextType | undefined>(undefined);
@@ -34,6 +41,7 @@ export function useNotifications() {
 export function NotificationsProvider({ children }: { children: ReactNode }) {
     const { account, signMessage } = useWallet();
     const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [toasts, setToasts] = useState<Toast[]>([]);
 
     // Fetch from server when connected and setup Realtime subscription
     useEffect(() => {
@@ -76,6 +84,26 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
                     table: 'notifications',
                     filter: `user_address=eq.${account.address.toString().toLowerCase()}` 
                 }, (payload) => {
+                    // Check if notifications are enabled
+                    if (typeof window !== 'undefined') {
+                        // Check specifically for tips notifications if this is a tip
+                        // For now, we rely on the generic 'settings_notify_tips' or similar
+                        // But since this is a generic listener, we might need to parse the message or type
+                        // However, server-side notifications are usually important (tips)
+                        
+                        const notifyTips = localStorage.getItem('settings_notify_tips');
+                        const notifyErrors = localStorage.getItem('settings_notify_errors');
+                        
+                        const newNotif = payload.new as any;
+                        const isError = newNotif.type === 'error';
+                        
+                        // If it's an error and errors are disabled, skip
+                        if (isError && notifyErrors === 'false') return;
+                        
+                        // If it's NOT an error (likely a tip/success) and tips are disabled, skip
+                        if (!isError && notifyTips === 'false') return;
+                    }
+
                     const newNotif = payload.new as any;
                     const notification: Notification = {
                         id: newNotif.id,
@@ -86,6 +114,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
                     };
                     
                     setNotifications(prev => [notification, ...prev].slice(0, 50));
+                    
+                    // Also show as toast when received from server
+                    addToast(notification.message, notification.type, 5000);
                 })
                 .subscribe();
                 
@@ -97,15 +128,40 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         };
     }, [account?.address]);
 
-    const addNotification = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
-        const newNotification: Notification = {
-            id: Math.random().toString(36).substring(2, 9),
-            message,
-            type,
-            timestamp: Date.now(),
-            read: false
-        };
-        setNotifications(prev => [newNotification, ...prev].slice(0, 50)); // Keep last 50
+    const addToast = (message: string, type: 'success' | 'info' | 'error', duration: number = 3000) => {
+        const id = Math.random().toString(36).substring(2, 9);
+        setToasts(prev => [...prev, { id, message, type, duration }]);
+        
+        // Auto remove
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, duration);
+    };
+
+    const addNotification = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success', options?: { persist?: boolean; duration?: number }) => {
+        const { persist = false, duration = 3000 } = options || {};
+
+        // Always show toast (unless it's an error? No, errors also show toasts)
+        // User said: "у toast / modal — детальніше" for errors.
+        
+        // Add toast
+        const toastId = Math.random().toString(36).substring(2, 9);
+        setToasts(prev => [...prev, { id: toastId, message, type, duration }]);
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== toastId));
+        }, duration);
+
+        // Only add to history (Bell) if persist is true
+        if (persist) {
+            const newNotification: Notification = {
+                id: Math.random().toString(36).substring(2, 9),
+                message,
+                type,
+                timestamp: Date.now(),
+                read: false
+            };
+            setNotifications(prev => [newNotification, ...prev].slice(0, 50)); // Keep last 50
+        }
     }, []);
 
     const unreadCount = notifications.filter(n => !n.read).length;
@@ -223,6 +279,22 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     return (
         <NotificationsContext.Provider value={{ addNotification, markAsRead, unreadCount, notifications, setNotifications }}>
             {children}
+            
+            {/* Toast Container */}
+            <div className="fixed bottom-4 right-4 z-[10000] flex flex-col gap-2 pointer-events-none">
+                {toasts.map(toast => (
+                    <div 
+                        key={toast.id}
+                        className="pointer-events-auto bg-neutral-900 border border-white/10 p-4 rounded-xl shadow-2xl animate-fadeIn flex items-start gap-3 max-w-sm backdrop-blur-md"
+                    >
+                        <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
+                            toast.type === 'success' ? 'bg-green-500' : 
+                            toast.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+                        }`} />
+                        <p className="text-sm text-white leading-snug font-medium">{toast.message}</p>
+                    </div>
+                ))}
+            </div>
         </NotificationsContext.Provider>
     );
 }

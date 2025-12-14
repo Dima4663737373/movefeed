@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { TipEvent } from '@/types/tip';
 import { fetchTipHistory } from '@/lib/movementTx';
 import { formatMovementAddress } from '@/lib/movement';
+import { getExplorerLink, ExplorerType } from '@/lib/explorer';
 
 interface TipHistoryTableProps {
     creatorAddress: string;
@@ -18,6 +19,14 @@ interface TipHistoryTableProps {
 export function TipHistoryTable({ creatorAddress }: TipHistoryTableProps) {
     const [history, setHistory] = useState<TipEvent[]>([]);
     const [loading, setLoading] = useState(true);
+    const [explorerType, setExplorerType] = useState<ExplorerType>('movement');
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const stored = localStorage.getItem('preferred_explorer') as ExplorerType;
+            if (stored) setExplorerType(stored);
+        }
+    }, []);
 
     useEffect(() => {
         const loadHistory = async () => {
@@ -111,7 +120,7 @@ export function TipHistoryTable({ creatorAddress }: TipHistoryTableProps) {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <a
-                                        href={`https://explorer.movementnetwork.xyz/txn/${tip.txHash}`}
+                                        href={getExplorerLink(tip.txHash, 'tx', explorerType)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-sm font-mono text-yellow-400 hover:text-yellow-300 transition-colors"

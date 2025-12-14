@@ -57,13 +57,29 @@ export function useTipMonitor() {
                 // Check for new tips
                 if (latestTimestamp > lastTipTimestampRef.current) {
                     console.log("🎉 NEW TIP DETECTED!");
-                    // We have a new tip!
-                    const amount = latestTip.amount;
-                    // Use sender address, formatted
-                    const senderAddr = latestTip.sender || "Unknown";
-                    const senderDisplay = `${senderAddr.substring(0, 6)}...${senderAddr.substring(senderAddr.length - 4)}`;
+                    
+                    // Check if notifications are enabled
+                    const notifyTips = localStorage.getItem('settings_notify_tips');
+                    const soundEnabled = localStorage.getItem('sound_enabled');
+                    
+                    // Default to true if not set (legacy behavior)
+                    if (notifyTips !== 'false') {
+                        // We have a new tip!
+                        const amount = latestTip.amount;
+                        // Use sender address, formatted
+                        const senderAddr = latestTip.sender || "Unknown";
+                        const senderDisplay = `${senderAddr.substring(0, 6)}...${senderAddr.substring(senderAddr.length - 4)}`;
 
-                    addNotification(`You received ${amount} MOVE from ${senderDisplay}!`, 'success');
+                        addNotification(`You received ${amount} MOVE from ${senderDisplay}!`, 'success', { persist: true });
+                        
+                        // Play sound if enabled
+                        if (soundEnabled === 'true') {
+                            // Placeholder for sound effect
+                            // const audio = new Audio('/sounds/coin.mp3');
+                            // audio.play().catch(e => console.error("Error playing sound", e));
+                        }
+                    }
+                    
                     lastTipTimestampRef.current = latestTimestamp;
                 }
             } catch (error) {

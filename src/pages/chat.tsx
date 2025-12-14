@@ -49,6 +49,14 @@ export default function ChatPage() {
     const [profiles, setProfiles] = useState<Record<string, Profile>>({});
     const [isLoading, setIsLoading] = useState(false);
     
+    // Media & Emoji State
+    const [mediaFiles, setMediaFiles] = useState<{ file: File; preview: string; type: 'image' | 'video' }[]>([]);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const EMOJIS = ["😀", "😂", "🥰", "😎", "🤔", "😅", "😭", "😤", "👍", "👎", "🔥", "❤️", "🎉", "👀", "🚀", "💯", "👋", "🙏", "💪", "💀"];
+
     // New Chat State
     const [isNewChatOpen, setIsNewChatOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
@@ -121,43 +129,12 @@ export default function ChatPage() {
         if (!userAddress || !contact) return;
         
         try {
-             const messagePayload = {
-                user: userAddress,
-                otherUser: contact,
-                timestamp: Date.now()
-            };
-            const messageString = JSON.stringify(messagePayload);
-
-            const response = await signMessage({
-                message: messageString,
-                nonce: Date.now().toString(),
-            });
-
-            let signatureToSend: any = response;
-            
-            // Handle object wrapper
-            if (typeof response === 'object' && response !== null) {
-                if ('signature' in response) {
-                    signatureToSend = (response as any).signature;
-                }
-                if (typeof signatureToSend === 'object' && signatureToSend && 'data' in (signatureToSend as any)) {
-                    signatureToSend = (signatureToSend as any).data;
-                }
-            }
-
-            if (Array.isArray(signatureToSend) || signatureToSend instanceof Uint8Array || (typeof signatureToSend === 'object' && signatureToSend !== null && Object.values(signatureToSend).every((v: any) => typeof v === 'number'))) {
-                 const bytes = Array.isArray(signatureToSend) ? signatureToSend : 
-                               (signatureToSend instanceof Uint8Array ? signatureToSend : Object.values(signatureToSend));
-                 signatureToSend = "0x" + Array.from(bytes as any[]).map((b: any) => b.toString(16).padStart(2, '0')).join('');
-            }
-
             await fetch('/api/messages', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: messageString,
-                    signature: signatureToSend,
-                    publicKey: account?.publicKey
+                    user: userAddress,
+                    otherUser: contact
                 })
             });
         } catch (e) {
@@ -167,24 +144,23 @@ export default function ChatPage() {
 
     // Helper to fetch profiles
     const fetchProfiles = async (addresses: string[]) => {
-        const newProfiles: Record<string, Profile> = { ...profiles };
-        let hasUpdates = false;
+        const toFetch = addresses.filter(addr => !profiles[addr]);
+        if (toFetch.length === 0) return;
 
-        await Promise.all(addresses.map(async (addr) => {
-            if (!newProfiles[addr]) {
-                try {
-                    const displayName = await getDisplayName(addr);
-                    const avatar = await getAvatar(addr);
-                    newProfiles[addr] = { displayName, avatar };
-                    hasUpdates = true;
-                } catch (e) {
-                    console.error(`Failed to fetch profile for ${addr}`, e);
-                }
+        const fetched: Record<string, Profile> = {};
+        
+        await Promise.all(toFetch.map(async (addr) => {
+            try {
+                const displayName = await getDisplayName(addr);
+                const avatar = await getAvatar(addr);
+                fetched[addr] = { displayName, avatar };
+            } catch (e) {
+                console.error(`Failed to fetch profile for ${addr}`, e);
             }
         }));
 
-        if (hasUpdates) {
-            setProfiles(newProfiles);
+        if (Object.keys(fetched).length > 0) {
+            setProfiles(prev => ({ ...prev, ...fetched }));
         }
     };
 
@@ -280,62 +256,128 @@ export default function ChatPage() {
     // Scroll to bottom
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
+    }, [messages, mediaFiles]); // Also scroll when media is added
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const files = Array.from(e.target.files);
+            const newMedia = files.map(file => ({
+                file,
+                preview: URL.createObjectURL(file),
+                type: file.type.startsWith('video') ? 'video' : 'image' as 'image' | 'video'
+            }));
+            setMediaFiles(prev => [...prev, ...newMedia]);
+        }
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const removeMedia = (index: number) => {
+        setMediaFiles(prev => {
+            const newFiles = [...prev];
+            URL.revokeObjectURL(newFiles[index].preview);
+            newFiles.splice(index, 1);
+            return newFiles;
+        });
+    };
+
+    const addEmoji = (emoji: string) => {
+        setInputText(prev => prev + emoji);
+        setShowEmojiPicker(false);
+    };
+
+    const handlePaste = (e: React.ClipboardEvent) => {
+        const items = e.clipboardData.items;
+        const newMedia: { file: File; preview: string; type: 'image' | 'video' }[] = [];
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.type.indexOf("image") !== -1) {
+                const blob = item.getAsFile();
+                if (blob) {
+                    newMedia.push({
+                        file: blob,
+                        preview: URL.createObjectURL(blob),
+                        type: 'image'
+                    });
+                }
+            }
+        }
+
+        if (newMedia.length > 0) {
+            setMediaFiles(prev => [...prev, ...newMedia]);
+        }
+    };
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!inputText.trim() || !activeContact || !userAddress) return;
+        if ((!inputText.trim() && mediaFiles.length === 0) || !activeContact || !userAddress || isUploading) return;
 
-        const content = inputText.trim();
+        setIsUploading(true);
+        let content = inputText.trim();
+        const uploadedMedia: { url: string; type: 'image' | 'video' }[] = [];
 
         try {
-            const messagePayload = {
-                sender: userAddress,
-                receiver: activeContact,
-                content,
-                timestamp: Date.now()
-            };
-            const messageString = JSON.stringify(messagePayload);
+            // 1. Upload Media if any
+            if (mediaFiles.length > 0) {
+                for (const item of mediaFiles) {
+                    try {
+                        // Convert to base64 for the upload API
+                        const reader = new FileReader();
+                        const base64Promise = new Promise<string>((resolve, reject) => {
+                            reader.onload = () => resolve(reader.result as string);
+                            reader.onerror = reject;
+                            reader.readAsDataURL(item.file);
+                        });
+                        const base64Data = await base64Promise;
 
-            const response = await signMessage({
-                message: messageString,
-                nonce: Date.now().toString(),
-            });
+                        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+                        
+                        const uploadRes = await fetch('/api/upload', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                fileName,
+                                fileData: base64Data,
+                                contentType: item.file.type
+                            })
+                        });
 
-            let signatureToSend: any = response;
-            
-            // Handle object wrapper
-            if (typeof response === 'object' && response !== null) {
-                if ('signature' in response) {
-                    signatureToSend = (response as any).signature;
-                }
-                
-                // Handle nested data object
-                if (typeof signatureToSend === 'object' && signatureToSend && 'data' in (signatureToSend as any)) {
-                    signatureToSend = (signatureToSend as any).data;
+                        if (uploadRes.ok) {
+                            const data = await uploadRes.json();
+                            uploadedMedia.push({ url: data.publicUrl, type: item.type });
+                        } else {
+                            console.error("Upload failed for file", item.file.name);
+                        }
+                    } catch (err) {
+                        console.error("Error processing file", err);
+                    }
                 }
             }
 
-            // Handle Uint8Array or Array
-            if (Array.isArray(signatureToSend) || signatureToSend instanceof Uint8Array || (typeof signatureToSend === 'object' && signatureToSend !== null && Object.values(signatureToSend).every((v: any) => typeof v === 'number'))) {
-                 // Convert to hex string
-                 const bytes = Array.isArray(signatureToSend) ? signatureToSend : 
-                               (signatureToSend instanceof Uint8Array ? signatureToSend : Object.values(signatureToSend));
-                 signatureToSend = "0x" + Array.from(bytes as any[]).map((b: any) => b.toString(16).padStart(2, '0')).join('');
+            // 2. Construct Message Content
+            // We'll use a JSON structure if media exists, otherwise plain text
+            let finalContent = content;
+            if (uploadedMedia.length > 0) {
+                finalContent = JSON.stringify({
+                    text: content,
+                    media: uploadedMedia
+                });
             }
 
+            // 3. Send Message
             const res = await fetch('/api/messages', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: messageString,
-                    signature: signatureToSend,
-                    publicKey: account?.publicKey
+                    sender: userAddress,
+                    receiver: activeContact,
+                    content: finalContent
                 })
             });
 
             if (res.ok) {
                 setInputText("");
+                setMediaFiles([]);
                 fetchMessages();
                 fetchConversations();
             } else {
@@ -343,6 +385,8 @@ export default function ChatPage() {
             }
         } catch (error) {
             console.error("Failed to send message", error);
+        } finally {
+            setIsUploading(false);
         }
     };
 
@@ -499,6 +543,19 @@ export default function ChatPage() {
                                     <div className="flex-1 overflow-y-auto space-y-4 pr-2 mb-4">
                                         {messages.map((msg, idx) => {
                                             const isMe = msg.sender === userAddress;
+                                            let content = msg.content;
+                                            let media: { url: string; type: 'image' | 'video' }[] = [];
+                                            
+                                            try {
+                                                const parsed = JSON.parse(msg.content);
+                                                if (typeof parsed === 'object' && (parsed.text || parsed.media)) {
+                                                    content = parsed.text || "";
+                                                    media = parsed.media || [];
+                                                }
+                                            } catch (e) {
+                                                // Not JSON, plain text
+                                            }
+
                                             return (
                                                 <div key={msg.id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                                     <div className={`max-w-[75%] px-4 py-2 rounded-2xl ${
@@ -506,7 +563,20 @@ export default function ChatPage() {
                                                             ? 'bg-[var(--accent)] text-black rounded-tr-none' 
                                                             : 'bg-[var(--card-border)] text-[var(--text-primary)] rounded-tl-none'
                                                     }`}>
-                                                        <p>{msg.content}</p>
+                                                        {media.length > 0 && (
+                                                            <div className={`grid gap-2 mb-2 ${media.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                                                {media.map((m, i) => (
+                                                                    <div key={i} className="relative rounded-lg overflow-hidden">
+                                                                        {m.type === 'video' ? (
+                                                                            <video src={m.url} controls className="w-full h-auto max-h-60 object-cover" />
+                                                                        ) : (
+                                                                            <img src={m.url} alt="Shared media" className="w-full h-auto max-h-60 object-cover" />
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {content && <p className="whitespace-pre-wrap">{content}</p>}
                                                         <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-black/60' : 'text-[var(--text-secondary)]'}`}>
                                                             {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </p>
@@ -518,24 +588,102 @@ export default function ChatPage() {
                                     </div>
 
                                     {/* Input Area */}
-                                    <form onSubmit={handleSendMessage} className="relative">
-                                        <input
-                                            type="text"
-                                            value={inputText}
-                                            onChange={(e) => setInputText(e.target.value)}
-                                            placeholder="Type a message..."
-                                            className="w-full bg-[var(--hover-bg)] text-[var(--text-primary)] rounded-full pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                                        />
-                                        <button 
-                                            type="submit"
-                                            disabled={!inputText.trim()}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--card-bg)] rounded-full transition-colors"
-                                        >
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                                            </svg>
-                                        </button>
-                                    </form>
+                                    <div className="relative">
+                                        {/* Media Preview */}
+                                        {mediaFiles.length > 0 && (
+                                            <div className="flex gap-2 p-2 overflow-x-auto mb-2 bg-[var(--bg-primary)]/50 rounded-xl">
+                                                {mediaFiles.map((file, idx) => (
+                                                    <div key={idx} className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden group border border-[var(--card-border)]">
+                                                        {file.type === 'video' ? (
+                                                            <video src={file.preview} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <img src={file.preview} className="w-full h-full object-cover" />
+                                                        )}
+                                                        <button 
+                                                            onClick={() => removeMedia(idx)}
+                                                            className="absolute top-0 right-0 bg-black/50 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        >
+                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        <form onSubmit={handleSendMessage} className="relative flex items-center gap-2">
+                                            <input 
+                                                type="file" 
+                                                ref={fileInputRef}
+                                                onChange={handleFileSelect}
+                                                className="hidden" 
+                                                multiple 
+                                                accept="image/*,video/*" 
+                                            />
+                                            
+                                            <button 
+                                                type="button"
+                                                onClick={() => fileInputRef.current?.click()}
+                                                className="p-2 text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--hover-bg)] rounded-full transition-colors"
+                                                title="Attach media"
+                                            >
+                                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                                </svg>
+                                            </button>
+
+                                            <div className="relative">
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                                                    className={`p-2 hover:bg-[var(--hover-bg)] rounded-full transition-colors ${showEmojiPicker ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}
+                                                    title="Add emoji"
+                                                >
+                                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                </button>
+                                                {/* Emoji Picker */}
+                                                {showEmojiPicker && (
+                                                    <div className="absolute bottom-full mb-2 left-0 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl p-3 w-72 grid grid-cols-6 gap-1 z-10">
+                                                        {EMOJIS.map(emoji => (
+                                                            <button 
+                                                                key={emoji} 
+                                                                type="button"
+                                                                onClick={() => addEmoji(emoji)} 
+                                                                className="text-2xl hover:bg-[var(--hover-bg)] p-1 rounded transition-colors flex items-center justify-center aspect-square"
+                                                            >
+                                                                {emoji}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="relative flex-1">
+                                                <input
+                                                    type="text"
+                                                    value={inputText}
+                                                    onChange={(e) => setInputText(e.target.value)}
+                                                    onPaste={handlePaste}
+                                                    placeholder={mediaFiles.length > 0 ? "Add a caption..." : "Type a message..."}
+                                                    className="w-full bg-[var(--hover-bg)] text-[var(--text-primary)] rounded-full pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                                                />
+                                                <button 
+                                                    type="submit"
+                                                    disabled={(!inputText.trim() && mediaFiles.length === 0) || isUploading}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--card-bg)] rounded-full transition-colors"
+                                                >
+                                                    {isUploading ? (
+                                                        <div className="w-5 h-5 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+                                                    ) : (
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                                        </svg>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
                                 </>
                             )}
                         </div>

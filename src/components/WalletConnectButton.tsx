@@ -9,6 +9,7 @@
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { formatMovementAddress, MOVEMENT_CHAIN_ID } from '@/lib/movement';
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { getBalance } from '@/lib/movementClient';
 import { useRouter } from 'next/router';
 
@@ -34,6 +35,9 @@ export function WalletConnectButton() {
         // Check by Name if Chain ID is missing (some wallets)
         if (network.name) {
             const name = network.name.toLowerCase();
+            // Explicitly exclude Mainnet
+            if (name.includes('mainnet')) return false;
+            
             return name.includes('movement') || name.includes('bardock') || name.includes('testnet');
         }
 
@@ -85,11 +89,30 @@ export function WalletConnectButton() {
         }
     };
 
-    // Filter out unwanted wallets (social logins) and prioritize Petra/Razor
-    const filteredWallets = (wallets as any[]).filter(wallet => {
-        const name = wallet.name.toLowerCase();
-        return !name.includes('google') && !name.includes('facebook') && !name.includes('twitter') && !name.includes('discord');
-    });
+    // Filter out unwanted wallets (social logins) and prioritize Nightly
+    const filteredWallets = (wallets as any[])
+        .filter(wallet => {
+            const name = wallet.name.toLowerCase();
+            return !name.includes('google') && 
+                   !name.includes('facebook') && 
+                   !name.includes('twitter') && 
+                   !name.includes('discord') && 
+                   !name.includes('apple');
+        })
+        .sort((a, b) => {
+            const nameA = a.name.toLowerCase();
+            const nameB = b.name.toLowerCase();
+            
+            // Prioritize Nightly
+            if (nameA.includes('nightly') && !nameB.includes('nightly')) return -1;
+            if (!nameA.includes('nightly') && nameB.includes('nightly')) return 1;
+            
+            // Then Razor
+            if (nameA.includes('razor') && !nameB.includes('razor')) return -1;
+            if (!nameA.includes('razor') && nameB.includes('razor')) return 1;
+            
+            return 0;
+        });
 
     // Helper to get install URL
     const getInstallUrl = (name: string) => {
@@ -156,8 +179,8 @@ export function WalletConnectButton() {
             </button>
 
             {/* Modal */}
-            {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
+            {showModal && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
                     <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-slideUp">
                         <div className="p-4 border-b border-[var(--card-border)] flex justify-between items-center">
                             <h3 className="text-lg font-bold text-[var(--text-primary)]">Connect Wallet</h3>
@@ -170,7 +193,7 @@ export function WalletConnectButton() {
                                 </svg>
                             </button>
                         </div>
-                        <div className="p-4 flex flex-col gap-3">
+                        <div className="p-4 flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
                             {filteredWallets.length > 0 ? (
                                 filteredWallets.map((wallet) => (
                                     <div
@@ -182,8 +205,13 @@ export function WalletConnectButton() {
                                             className="flex items-center gap-3 flex-1 text-left"
                                         >
                                             <img src={wallet.icon} alt={wallet.name} className="w-6 h-6 rounded-lg" />
-                                            <span className="font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
+                                            <span className="font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors flex items-center gap-2">
                                                 {wallet.name}
+                                                {wallet.name.toLowerCase().includes('nightly') && (
+                                                    <span className="text-[10px] bg-[var(--accent)] text-black px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">
+                                                        Best
+                                                    </span>
+                                                )}
                                             </span>
                                         </button>
 
@@ -203,8 +231,16 @@ export function WalletConnectButton() {
                                     </div>
                                 ))
                             ) : (
-                                <div className="text-[var(--text-secondary)] text-center py-4 space-y-2">
-                                    <p>No wallets detected.</p>
+                                <div className="text-[var(--text-secondary)] text-center py-8 space-y-3">
+                                    <div className="w-12 h-12 bg-[var(--hover-bg)] rounded-full flex items-center justify-center mx-auto mb-2">
+                                        <svg className="w-6 h-6 text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                    </div>
+                                    <p className="font-medium">No wallets detected</p>
+                                    <p className="text-xs text-[var(--text-secondary)] max-w-[200px] mx-auto">
+                                        Install a supported wallet to interact with Movement Network.
+                                    </p>
                                     <div className="flex flex-col gap-2 mt-4">
                                         <a href="https://razorwallet.xyz/" target="_blank" rel="noopener noreferrer" className="text-sm text-[var(--accent)] hover:underline py-2">
                                             Install Razor Wallet
@@ -227,7 +263,8 @@ export function WalletConnectButton() {
                             Cancel
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </>
     );

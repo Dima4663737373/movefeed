@@ -95,49 +95,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (method === 'POST') {
-        const { message, signature, publicKey } = req.body;
-
-        if (!message || !signature || !publicKey) {
-            return res.status(400).json({ error: 'Missing signature, message, or public key' });
-        }
-
-        // Verify signature
-        const verification = verifySignature(message, signature, publicKey);
-        if (!verification.valid) {
-            return res.status(401).json({ error: `Invalid signature: ${verification.error}` });
-        }
-
-        let parsedMessage;
-        try {
-            parsedMessage = JSON.parse(message);
-        } catch (e) {
-            return res.status(400).json({ error: 'Invalid message format' });
-        }
-
-        const { sender, receiver, content } = parsedMessage;
+        const { sender, receiver, content } = req.body;
 
         if (!sender || !receiver || !content) {
-            return res.status(400).json({ error: 'Missing required fields in message' });
+            return res.status(400).json({ error: 'Missing required fields: sender, receiver, content' });
         }
 
-        // Verify sender matches public key
-        try {
-            const pubKeyStr = formatPublicKey(publicKey);
-            const pubKey = new Ed25519PublicKey(pubKeyStr);
-            const derivedAddress = pubKey.authKey().derivedAddress().toString();
-            
-            // Normalize addresses for comparison (lowercase and ensure 0x prefix)
-            const normalize = (addr: string) => {
-                const lower = addr.toLowerCase();
-                return lower.startsWith('0x') ? lower : `0x${lower}`;
-            };
-
-            if (normalize(derivedAddress) !== normalize(sender)) {
-                 return res.status(401).json({ error: 'Public key does not match sender address' });
-            }
-        } catch (e: any) {
-             return res.status(400).json({ error: `Invalid public key: ${e.message}` });
-        }
+        // Security Check SKIPPED as per user request for seamless UX
+        // In a production app, we should use a session token or at least a signature
+        // to verify the request comes from the owner of sender.
+        // Since this is a demo/hackathon project, we trust the client for now.
 
         const newMessage = {
             sender: sender.toLowerCase(),
@@ -160,7 +127,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Also mark previous messages from receiver to sender as read
         // Since the user is replying, they have implicitly read the messages.
-        // This avoids requiring a separate signature just to mark as read.
         await supabaseAdmin
             .from('messages')
             .update({ read: true })
@@ -172,46 +138,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (method === 'PUT') {
         // Mark messages as read
-        const { message, signature, publicKey } = req.body;
-        
-        if (!message || !signature || !publicKey) {
-             return res.status(400).json({ error: 'Missing signature, message, or public key' });
-        }
-
-        // Verify signature
-        const verification = verifySignature(message, signature, publicKey);
-        if (!verification.valid) {
-             return res.status(401).json({ error: `Invalid signature: ${verification.error}` });
-        }
-
-        let parsedMessage;
-        try {
-            parsedMessage = JSON.parse(message);
-        } catch (e) {
-            return res.status(400).json({ error: 'Invalid message format' });
-        }
-
-        const { user, otherUser } = parsedMessage;
+        const { user, otherUser } = req.body;
         
         if (!user || !otherUser) {
-            return res.status(400).json({ error: 'Missing required fields' });
-        }
-
-        // Verify sender matches public key
-        try {
-            const pubKey = new Ed25519PublicKey(publicKey);
-            const derivedAddress = pubKey.authKey().derivedAddress().toString();
-            
-            const normalize = (addr: string) => {
-                const lower = addr.toLowerCase();
-                return lower.startsWith('0x') ? lower : `0x${lower}`;
-            };
-
-            if (normalize(derivedAddress) !== normalize(user)) {
-                 return res.status(401).json({ error: 'Public key does not match user address' });
-            }
-        } catch (e: any) {
-             return res.status(400).json({ error: `Invalid public key: ${e.message}` });
+            return res.status(400).json({ error: 'Missing required fields: user, otherUser' });
         }
 
         const userAddress = user.toLowerCase();

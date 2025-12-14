@@ -23,6 +23,21 @@ interface Translations {
     privateProfileDesc: string;
     interface: string;
     language: string;
+    tipping: string;
+    defaultTipAmount: string;
+    defaultTipDesc: string;
+    explorerSettings: string;
+    preferredExplorer: string;
+    preferredExplorerDesc: string;
+    enableNotifications: string;
+    notificationsDesc: string;
+    notifyTips: string;
+    notifyTipsDesc: string;
+    notifyErrors: string;
+    notifyErrorsDesc: string;
+    soundEffects: string;
+    soundDesc: string;
+    general: string;
     save: string;
     saving: string;
     settingsSaved: string;
@@ -215,6 +230,21 @@ const translations: Record<Language, Translations> = {
         privateProfileDesc: 'Only followers can see your posts',
         interface: 'Interface',
         language: 'Language',
+        tipping: 'Tipping',
+        defaultTipAmount: 'Default Tip Amount (MOVE)',
+        defaultTipDesc: 'Set your preferred tip amount for quick tipping',
+        explorerSettings: 'Explorer',
+        preferredExplorer: 'Preferred Explorer',
+        preferredExplorerDesc: 'Choose which explorer to use for links',
+        enableNotifications: 'Enable Notifications',
+        notificationsDesc: 'Receive alerts about tips and updates',
+        notifyTips: 'Incoming Tips',
+        notifyTipsDesc: 'Get notified when you receive MOVE',
+        notifyErrors: 'Transaction Errors',
+        notifyErrorsDesc: 'Get notified when a transaction fails',
+        soundEffects: 'Sound Effects',
+        soundDesc: 'Play sounds for interactions',
+        general: 'General',
         save: 'Save Changes',
         saving: 'Saving...',
         settingsSaved: 'Settings saved successfully!',
@@ -395,6 +425,15 @@ const translations: Record<Language, Translations> = {
         privateProfileDesc: 'Тільки підписники можуть бачити ваші пости',
         interface: 'Інтерфейс',
         language: 'Мова',
+        enableNotifications: 'Увімкнути сповіщення',
+        notificationsDesc: 'Отримувати сповіщення про чайові та оновлення',
+        notifyTips: 'Вхідні транзакції (Tips)',
+        notifyTipsDesc: 'Сповіщення про отримання MOVE',
+        notifyErrors: 'Помилки транзакцій',
+        notifyErrorsDesc: 'Сповіщення про невдалі транзакції',
+        soundEffects: 'Звукові ефекти',
+        soundDesc: 'Відтворювати звуки при взаємодії',
+        general: 'Загальні',
         save: 'Зберегти зміни',
         saving: 'Збереження...',
         settingsSaved: 'Налаштування збережено успішно!',

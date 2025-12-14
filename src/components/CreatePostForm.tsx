@@ -34,8 +34,7 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
     const [success, setSuccess] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleMediaSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files || []);
+    const processFiles = (files: File[]) => {
         if (files.length === 0) return;
 
         // Limit to 4 items
@@ -134,6 +133,27 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                 reader.readAsDataURL(file);
             }
         });
+    };
+
+    const handleMediaSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        processFiles(files);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handlePaste = (e: React.ClipboardEvent) => {
+        const items = e.clipboardData.items;
+        const files: File[] = [];
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].kind === 'file') {
+                const file = items[i].getAsFile();
+                if (file) files.push(file);
+            }
+        }
+        if (files.length > 0) {
+            e.preventDefault();
+            processFiles(files);
+        }
     };
 
     const removeMedia = (index: number) => {
@@ -344,6 +364,8 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
             // Handle wallet rejection specifically
             if (error?.message?.includes("User has rejected") || error?.toString().includes("User has rejected")) {
                 setError("Transaction rejected. Please ensure you approved the request in your wallet.");
+            } else if (error?.message?.includes("module_not_found") || error?.toString().includes("module_not_found")) {
+                setError("Module not found. Please switch your wallet to Movement Testnet (Bardock).");
             } else {
                 setError(error instanceof Error ? error.message : t.postCreationError);
             }
@@ -399,6 +421,7 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                 <textarea
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
+                    onPaste={handlePaste}
                     placeholder={parentId ? t.writeReply : t.whatsHappeningPlaceholder}
                     className="w-full px-4 py-3 bg-[var(--input-bg)] border border-[var(--card-border)] rounded-xl text-[var(--text-primary)] placeholder-neutral-500 focus:outline-none focus:border-[var(--accent)] transition-colors resize-none"
                     rows={3}

@@ -61,47 +61,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json(response);
 
     } else if (req.method === 'POST') {
-        const { userAddress, targetAddress, signature, message, publicKey } = req.body;
+        const { userAddress, targetAddress } = req.body;
 
         if (!userAddress || !targetAddress) {
             return res.status(400).json({ error: 'Missing userAddress or targetAddress' });
         }
 
-        // Security Check
-        if (!signature || !message || !publicKey) {
-             return res.status(401).json({ error: 'Missing authentication signature' });
-        }
-
-        try {
-            const { valid, error: sigError } = verifySignature(message, signature, publicKey);
-            if (!valid) return res.status(401).json({ error: `Invalid signature: ${sigError}` });
-
-            if (!message.includes(`Toggle follow for ${targetAddress} by ${userAddress}`)) {
-                 return res.status(401).json({ error: 'Message does not match intent' });
-            }
-
-            const pubKeyStr = formatPublicKey(publicKey);
-            const pubKey = new Ed25519PublicKey(pubKeyStr);
-            const authKey = AuthenticationKey.fromPublicKey({ publicKey: pubKey });
-            const derivedAddress = authKey.derivedAddress();
-            const signerAddress = AccountAddress.from(userAddress);
-
-            if (!signerAddress.equals(derivedAddress)) {
-                 return res.status(403).json({ error: 'Signer is not the follower' });
-            }
-
-            const timestampMatch = message.match(/at (\d+)$/);
-            if (timestampMatch) {
-                const timestamp = parseInt(timestampMatch[1]);
-                const now = Date.now();
-                if (now - timestamp > 5 * 60 * 1000 || timestamp > now + 60 * 1000) {
-                     return res.status(401).json({ error: 'Signature expired' });
-                }
-            }
-        } catch (e: any) {
-            console.error("Auth error:", e);
-            return res.status(401).json({ error: `Authentication failed: ${e?.message || e}` });
-        }
+        // Security Check SKIPPED as per user request for seamless UX
+        // In a production app, we should use a session token or at least a signature
+        // to verify the request comes from the owner of userAddress.
+        // Since this is a demo/hackathon project, we trust the client for now.
 
         const follower = userAddress.toLowerCase();
         const following = targetAddress.toLowerCase();

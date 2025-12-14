@@ -6,7 +6,7 @@
  */
 
 import { Aptos, AptosConfig, Network } from '@aptos-labs/ts-sdk';
-import { MOVEMENT_TESTNET_RPC, TIPJAR_MODULE_ADDRESS, moveToOctas, DEFAULT_GAS_CONFIG } from './movement';
+import { MOVEMENT_TESTNET_RPC, TIPJAR_MODULE_ADDRESS, moveToOctas, DEFAULT_GAS_CONFIG, convertToMovementAddress } from './movement';
 import { TipPayloadParams, TipEvent } from '@/types/tip';
 import { CreatePostParams } from '@/types/post';
 import { getGasEstimation } from './movementClient';
@@ -34,36 +34,34 @@ export async function buildTipPostPayload(
 ): Promise<any> {
     const { creatorAddress, amount, postId } = params;
 
+    // Ensure address is in 32-byte format (Movement requirement)
+    const formattedCreatorAddress = convertToMovementAddress(creatorAddress);
+
     // Convert amount to octas (8 decimals)
     const amountInOctas = moveToOctas(amount);
 
-    // Get gas estimation if not provided
-    let gasConfig = gasEstimation;
-    if (!gasConfig) {
-        const estimation = await getGasEstimation();
-        gasConfig = {
-            maxGasAmount: estimation.maxGasAmount,
-            gasUnitPrice: estimation.gasUnitPrice,
-        };
-    }
-
-    console.log('⛽ Using gas config:', gasConfig);
-
-    return {
+    const payload: any = {
         data: {
             function: `${TIPJAR_MODULE_ADDRESS}::MoveFeedV3::tip_post`,
             typeArguments: [],
             functionArguments: [
-                creatorAddress,
+                formattedCreatorAddress,
                 postId.toString(),
                 amountInOctas.toString(),
             ],
-        },
-        options: {
-            maxGasAmount: gasConfig.maxGasAmount,
-            gasUnitPrice: gasConfig.gasUnitPrice,
-        },
+        }
     };
+
+    // Only add gas options if explicitly provided and valid
+    if (gasEstimation) {
+        console.log('⛽ Using provided gas config:', gasEstimation);
+        payload.options = {
+            maxGasAmount: gasEstimation.maxGasAmount,
+            gasUnitPrice: gasEstimation.gasUnitPrice,
+        };
+    }
+
+    return payload;
 }
 
 /**
@@ -78,16 +76,14 @@ export async function sendTipToPost(
     signAndSubmitTransaction: any
 ): Promise<string> {
     try {
-        // Get gas estimation before building payload
-        const gasEstimation = await getGasEstimation();
-        console.log('⛽ Gas estimation:', gasEstimation);
+        // We do NOT manually set gas options for the wallet adapter.
+        // We let the wallet (Petra) handle gas estimation and simulation.
+        // Manually setting gas often causes "silent rejections" or simulation failures
+        // if the parameters are slightly off from what the node expects.
+        
+        const payload = await buildTipPostPayload(params); // No gas estimation passed
 
-        const payload = await buildTipPostPayload(params, {
-            maxGasAmount: gasEstimation.maxGasAmount,
-            gasUnitPrice: gasEstimation.gasUnitPrice,
-        });
-
-        console.log('🔨 Building tip transaction:', payload);
+        console.log('🔨 Building tip transaction (letting wallet handle gas):', payload);
 
         // Sign and submit transaction using Petra
         const response = await signAndSubmitTransaction(payload);

@@ -7,6 +7,9 @@
 
 "use client";
 
+import { useEffect, useState } from "react";
+import { getExplorerLink, ExplorerType } from "@/lib/explorer";
+
 interface TransactionStatusProps {
     hash: string | null;
     status: 'idle' | 'pending' | 'confirmed' | 'failed';
@@ -14,6 +17,15 @@ interface TransactionStatusProps {
 }
 
 export default function TransactionStatus({ hash, status, error }: TransactionStatusProps) {
+    const [explorerType, setExplorerType] = useState<ExplorerType>('movement');
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const stored = localStorage.getItem('preferred_explorer') as ExplorerType;
+            if (stored) setExplorerType(stored);
+        }
+    }, []);
+
     if (status === 'idle') return null;
 
     const statusConfig = {
@@ -63,7 +75,7 @@ export default function TransactionStatus({ hash, status, error }: TransactionSt
                 </p>
                 {hash && status === 'confirmed' && (
                     <a
-                        href={`https://explorer.movementnetwork.xyz/txn/${hash}?network=testnet`}
+                        href={getExplorerLink(hash, 'tx', explorerType)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-neutral-400 hover:text-white truncate block transition-colors mt-1"

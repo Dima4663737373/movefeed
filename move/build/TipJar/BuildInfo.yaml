@@ -23,7 +23,8 @@ compiled_package_info:
     full_model_generation: true
     install_dir: ~
     force_recompilation: false
-    additional_named_addresses: {}
+    additional_named_addresses:
+      tipjar_addr: 87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb
     fetch_deps_only: false
     skip_fetch_latest_git_deps: false
     compiler_config:

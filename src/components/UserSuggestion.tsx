@@ -33,69 +33,13 @@ export default function UserSuggestion({ creator, currentUserAddress, profile }:
         if (!currentUserAddress || !account) return;
         setLoading(true);
         try {
-            // Sign message for authentication
-            const timestamp = Date.now();
-            const messageToSign = `Toggle follow for ${creator} by ${currentUserAddress} at ${timestamp}`;
-            
-            let signature, fullMessage;
-            try {
-                const response = await signMessage({
-                    message: messageToSign,
-                    nonce: timestamp.toString()
-                });
-                
-                // Ensure signature is a hex string
-                let sigData: any = response;
-                if (typeof response !== 'string' && 'signature' in response) {
-                    sigData = response.signature;
-                    fullMessage = response.fullMessage;
-                }
-                
-                // Handle object wrapper
-                if (typeof sigData === 'object' && sigData !== null) {
-                     if ('data' in (sigData as any)) {
-                         sigData = (sigData as any).data;
-                     }
-                }
-
-                if (typeof sigData === 'string') {
-                    signature = sigData;
-                } else if (Array.isArray(sigData) || sigData instanceof Uint8Array || (typeof sigData === 'object' && sigData !== null && Object.values(sigData).every((v: any) => typeof v === 'number'))) {
-                    const bytes = Array.isArray(sigData) ? sigData : 
-                                  (sigData instanceof Uint8Array ? sigData : Object.values(sigData));
-                    signature = "0x" + Array.from(bytes as any[]).map((b: any) => b.toString(16).padStart(2, '0')).join('');
-                } else {
-                     console.warn("Unknown signature format:", sigData);
-                     signature = String(sigData);
-                }
-
-                if (!fullMessage) fullMessage = messageToSign;
-
-                if (!signature || (typeof signature === 'string' && !signature.startsWith('0x'))) {
-                    if (typeof signature === 'string' && /^[0-9a-fA-F]+$/.test(signature)) {
-                        signature = "0x" + signature;
-                    } else {
-                         throw new Error("Invalid signature format generated");
-                    }
-                }
-
-            } catch (err) {
-                console.error("User rejected signature", err);
-                setLoading(false);
-                return;
-            }
-
+            // Simplified follow (no signature required)
             const res = await fetch('/api/follow', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userAddress: currentUserAddress,
-                    targetAddress: creator,
-                    signature,
-                    message: fullMessage,
-                    publicKey: Array.isArray(account.publicKey) 
-                        ? account.publicKey[0].toString() 
-                        : (typeof account.publicKey === 'object' ? account.publicKey.toString() : String(account.publicKey))
+                    targetAddress: creator
                 })
             });
 

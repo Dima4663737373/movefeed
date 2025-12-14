@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMovementTransaction } from "@/hooks/useMovementTransaction";
-import { octasToMove, TEST_TIP_AMOUNT_OCTAS } from "@/lib/movement";
+import { octasToMove, TEST_TIP_AMOUNT_OCTAS, moveToOctas } from "@/lib/movement";
 import TransactionStatus from "./TransactionStatus";
 import { saveLocalTransaction } from "@/lib/movementClient";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
@@ -22,9 +22,18 @@ export default function TipSender({ address, balance, minBalance, onSuccess }: T
     const [error, setError] = useState<string | null>(null);
     const [recipientAddress, setRecipientAddress] = useState<string>("");
     const [addressError, setAddressError] = useState<string | null>(null);
+    const [tipAmount, setTipAmount] = useState("0.1");
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const savedTip = localStorage.getItem('default_tip_amount');
+            if (savedTip) {
+                setTipAmount(savedTip);
+            }
+        }
+    }, []);
 
     const canSendTip = balance >= minBalance && recipientAddress.trim().length > 0;
-    const tipAmount = octasToMove(TEST_TIP_AMOUNT_OCTAS);
 
     // Validate address format (basic validation)
     const validateAddress = (addr: string): boolean => {
@@ -57,7 +66,8 @@ export default function TipSender({ address, balance, minBalance, onSuccess }: T
         setTxHash(null);
 
         try {
-            const result = await sendTip(recipientAddress, TEST_TIP_AMOUNT_OCTAS);
+            const amountOctas = moveToOctas(parseFloat(tipAmount));
+            const result = await sendTip(recipientAddress, amountOctas);
             setTxHash(result.hash);
             setTxStatus('confirmed');
 
@@ -66,7 +76,7 @@ export default function TipSender({ address, balance, minBalance, onSuccess }: T
                 saveLocalTransaction({
                     sender: account.address.toString(),
                     receiver: recipientAddress,
-                    amount: octasToMove(TEST_TIP_AMOUNT_OCTAS),
+                    amount: parseFloat(tipAmount),
                     timestamp: Date.now() / 1000,
                     hash: result.hash
                 });

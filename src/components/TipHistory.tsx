@@ -6,10 +6,11 @@
  */
 
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { formatMovementAddress } from "@/lib/movement";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getExplorerLink, ExplorerType } from "@/lib/explorer";
 
 interface Tip {
     sender: string;
@@ -31,7 +32,15 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
     const { t } = useLanguage();
     const [activeTab, setActiveTab] = useState<Tab>('all');
     const [currentPage, setCurrentPage] = useState(0);
+    const [explorerType, setExplorerType] = useState<ExplorerType>('movement');
     const safeTips = tips || [];
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const stored = localStorage.getItem('preferred_explorer') as ExplorerType;
+            if (stored) setExplorerType(stored);
+        }
+    }, []);
 
     const TIPS_PER_PAGE = 5;
 
@@ -198,7 +207,7 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
                                                         </Link>
                                                     ) : (
                                                         <a
-                                                            href={`https://explorer.movementnetwork.xyz/txn/${tip.hash || ""}?network=bardock+testnet`}
+                                                            href={getExplorerLink(tip.hash || "", 'tx', explorerType)}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
                                                             className="text-white hover:text-yellow-400 hover:underline transition-colors"
@@ -216,7 +225,7 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
                                             </td>
                                             <td className="py-4 text-base text-neutral-400">
                                                 <a
-                                                    href={`https://explorer.movementnetwork.xyz/txn/${tip.hash || ""}?network=bardock+testnet`}
+                                                    href={getExplorerLink(tip.hash || "", 'tx', explorerType)}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="hover:text-yellow-400 hover:underline transition-colors"
@@ -226,7 +235,7 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
                                             </td>
                                             <td className="py-4 text-right">
                                                 <a
-                                                    href={`https://explorer.movementnetwork.xyz/txn/${tip.hash || ""}?network=bardock+testnet`}
+                                                    href={getExplorerLink(tip.hash || "", 'tx', explorerType)}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="inline-flex items-center gap-1 text-sm text-green-400 hover:text-green-300 transition-colors"

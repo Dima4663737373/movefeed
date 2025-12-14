@@ -46,7 +46,27 @@ CREATE TABLE IF NOT EXISTS public.bookmarks (
 
 CREATE INDEX IF NOT EXISTS bookmarks_user_address_idx ON public.bookmarks (user_address);
 
--- 4. Create 'post-media' Storage Bucket
+-- 4. Create 'post_views' table for real view counting
+CREATE TABLE IF NOT EXISTS public.post_views (
+    post_id TEXT PRIMARY KEY,
+    view_count BIGINT DEFAULT 0,
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 5. Create function for atomic view increment
+CREATE OR REPLACE FUNCTION increment_view_count(p_post_id TEXT)
+RETURNS VOID AS $$
+BEGIN
+  INSERT INTO public.post_views (post_id, view_count, last_updated)
+  VALUES (p_post_id, 1, timezone('utc'::text, now()))
+  ON CONFLICT (post_id)
+  DO UPDATE SET
+    view_count = post_views.view_count + 1,
+    last_updated = timezone('utc'::text, now());
+END;
+$$ LANGUAGE plpgsql;
+
+-- 6. Create 'post-media' Storage Bucket
 -- Note: You might need to create this manually in the Storage UI if this script fails,
 -- but this SQL attempts to create it via the storage schema.
 
@@ -54,7 +74,7 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('post-media', 'post-media', true)
 ON CONFLICT (id) DO NOTHING;
 
--- 5. Set up RLS Policies for Storage (Optional since we use Admin client now, but good practice)
+-- 7. Set up RLS Policies for Storage (Optional since we use Admin client now, but good practice)
 -- Allow public read access
 CREATE POLICY "Public Access"
 ON storage.objects FOR SELECT
