@@ -17,12 +17,10 @@
     "@telegram-apps/bridge": "^2.11.0",
     "@types/dompurify": "^3.0.5",
     "@types/formidable": "^3.4.6",
-    "aptos": "^1.22.1",
     "dompurify": "^3.3.0",
     "formidable": "^3.5.4",
     "got": "^14.6.5",
     "next": "15.0.3",
-    "petra-plugin-wallet-adapter": "^0.4.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "viem": "^2.41.2"
