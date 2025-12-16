@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { formatMovementAddress, octasToMove } from '@/lib/movement';
 import { formatRelativeTime, formatPostTime, formatPostStatsDate } from '@/lib/utils';
@@ -20,6 +20,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { parseText } from '@/utils/textUtils';
 import { CreatePostForm } from '@/components/CreatePostForm';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useNetwork } from '@/contexts/NetworkContext';
 import { v4 as uuidv4 } from 'uuid';
 
 interface PostMedia {
@@ -47,12 +48,14 @@ interface PostCardProps {
     showTipButton?: boolean;
     initialIsBookmarked?: boolean;
     hideComments?: boolean;
+    compact?: boolean;
 }
 
-export default function PostCard({ post, isOwner, showTipButton = true, initialIsBookmarked = false, hideComments = false }: PostCardProps) {
+export default function PostCard({ post, isOwner, showTipButton = true, initialIsBookmarked = false, hideComments = false, compact = false }: PostCardProps) {
     const router = useRouter();
     const { account, signAndSubmitTransaction, signMessage, network } = useWallet();
     const { t } = useLanguage();
+    const { currentNetwork } = useNetwork();
     const { addNotification } = useNotifications();
     const [displayName, setDisplayName] = useState<string>(post.creatorHandle || '');
     const [avatarUrl, setAvatarUrl] = useState<string>(post.creatorAvatar || '');
@@ -96,6 +99,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
     const handleSimpleRepost = async (e: React.MouseEvent) => {
         e.stopPropagation();
+        
         if (!account) return;
         setIsReposting(true);
         setShowRepostOptions(false);
@@ -151,12 +155,53 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
     const [commentCount, setCommentCount] = useState(post.commentCount || 0);
     const [loadingComments, setLoadingComments] = useState(false);
     
+    // Local post state for optimistic updates
+    const [localPost, setLocalPost] = useState(post);
+    const [viewCount, setViewCount] = useState(0);
+
+    useEffect(() => {
+        setLocalPost(post);
+    }, [post]);
+
+    // Extract special features
+    const bountyMatch = localPost.content.match(/\[bounty:([\d.]+)\]/);
+    const bountyAmount = bountyMatch ? parseFloat(bountyMatch[1]) : null;
+
+    const pollData = useMemo(() => {
+        const match = localPost.content.match(/\[poll:(.*?)\]/);
+        if (!match) return null;
+        
+        try {
+            const raw = match[1];
+            // Check if it's likely JSON (starts with {) - Legacy format support (might be broken if contained ])
+            if (raw.trim().startsWith('{')) {
+                return JSON.parse(raw);
+            }
+            
+            // Assume Base64 (New format)
+            if (typeof window !== 'undefined') {
+                 return JSON.parse(decodeURIComponent(escape(window.atob(raw))));
+            } else if (typeof Buffer !== 'undefined') {
+                 return JSON.parse(Buffer.from(raw, 'base64').toString('utf-8'));
+            }
+            return null;
+        } catch (e) {
+            // console.error("Failed to parse poll data", e);
+            return null;
+        }
+    }, [localPost.content]);
+
     // Helper to format content with clickable links and hashtags
     const formatContentWithLinks = (text: string) => {
         if (!text) return null;
         
-        // Strip ref tag
-        const cleanText = text.replace(/\[ref:[a-f0-9\-]+\]/g, '').trim();
+        // Strip ref tag, bounty tag, and poll tag
+        const cleanText = text
+            .replace(/\[ref:[a-f0-9\-]+\]/g, '')
+            .replace(/\[bounty:[\d.]+\]/g, '')
+            .replace(/\[poll:.*?\]/g, '')
+            .trim();
+            
         if (!cleanText) return null;
 
         const segments = parseText(cleanText);
@@ -191,14 +236,6 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
             }
         });
     };
-
-    // Local post state for optimistic updates
-    const [localPost, setLocalPost] = useState(post);
-    const [viewCount, setViewCount] = useState(0);
-
-    useEffect(() => {
-        setLocalPost(post);
-    }, [post]);
 
     // Fetch and increment views
     useEffect(() => {
@@ -258,7 +295,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                         .from('post_metadata')
                         .select('repost_of')
                         .eq('post_ref', refId)
-                        .single();
+                        .maybeSingle();
                     
                     if (metaData && metaData.repost_of) {
                         setIsLoadingRepost(true);
@@ -740,7 +777,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
     return (
         <>
             <div 
-                className="border-b border-[var(--card-border)] p-4 hover:bg-[var(--hover-bg)] transition-colors duration-200 cursor-pointer"
+                className={`${compact ? 'py-2 hover:bg-transparent' : 'border-b border-[var(--card-border)] px-4 py-3 lg:px-6 lg:py-4 hover:bg-[var(--hover-bg)]'} transition-colors duration-200 cursor-pointer`}
                 onClick={handleCardClick}
             >
                 {/* Repost Indicator */}
@@ -797,6 +834,15 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         title={`Edited: ${new Date(post.updatedAt).toLocaleString()}`}
                                     >
                                         · Edited {formatPostTime(post.updatedAt, false)}
+                                    </span>
+                                )}
+                                {bountyAmount && (
+                                    <span 
+                                        className="ml-2 px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-500 text-xs font-bold border border-yellow-500/20 flex items-center gap-1 shrink-0"
+                                        title={`Bounty: ${bountyAmount} MOVE`}
+                                    >
+                                        <span>🎯</span>
+                                        {bountyAmount} MOVE
                                     </span>
                                 )}
                             </div>
@@ -998,20 +1044,23 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                         </div>
 
                         {/* Action Bar */}
-                        <div className="flex items-center justify-between mt-3 max-w-md" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mt-2 w-full max-w-[550px]" onClick={(e) => e.stopPropagation()}>
                             {/* Reply Button */}
                             <button 
                                 onClick={() => setShowReplyForm(!showReplyForm)}
-                                className="group flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+                                className="group flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-sky-500 transition-colors -ml-2"
+                                title={t.replyButton}
                             >
-                                <div className="p-2 rounded-full group-hover:bg-[var(--accent-dim)] transition-colors">
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.013 8.013 0 01-5.685-2.356 1.993 1.993 0 00-.592-.518l-5.257 1.64a1 1 0 01-1.248-1.248l1.64-5.257a1.993 1.993 0 00-.518-.592A8.013 8.013 0 0112 4c4.418 0 8 3.582 8 8z" />
+                                <div className="p-2 rounded-full group-hover:bg-sky-500/10 transition-all group-hover:scale-110">
+                                    <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.48.432.447.74 1.04.586 1.641a4.483 4.483 0 01-.923 1.785A5.969 5.969 0 006 21c1.282 0 2.47-.402 3.445-1.087.81.22 1.668.337 2.555.337z" />
                                     </svg>
                                 </div>
-                                <span className="text-sm font-medium">
-                                    {commentCount > 0 ? commentCount : t.replyButton}
-                                </span>
+                                {commentCount > 0 && (
+                                    <span className="text-xs font-medium text-[var(--text-secondary)] group-hover:text-sky-500">
+                                        {commentCount}
+                                    </span>
+                                )}
                             </button>
 
                             {/* Repost Button */}
@@ -1024,22 +1073,22 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                     className="group flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-green-500 transition-colors"
                                     title={t.repostButton}
                                 >
-                                    <div className="p-2 rounded-full group-hover:bg-green-500/10 transition-colors">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                    <div className="p-2 rounded-full group-hover:bg-green-500/10 transition-all group-hover:scale-110">
+                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3" />
                                         </svg>
                                     </div>
                                 </button>
                                 
                                 {showRepostOptions && (
-                                    <div className="absolute top-full left-0 mt-2 w-48 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl z-50 overflow-hidden animate-fadeIn">
+                                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl z-50 overflow-hidden animate-fadeIn">
                                         <button 
                                             onClick={handleSimpleRepost}
                                             disabled={isReposting}
                                             className="w-full text-left px-4 py-3 hover:bg-[var(--hover-bg)] flex items-center gap-3 transition-colors text-[var(--text-primary)] font-medium text-sm"
                                         >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3" />
                                             </svg>
                                             {isReposting ? "Reposting..." : t.repostButton}
                                         </button>
@@ -1051,8 +1100,8 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                             }}
                                             className="w-full text-left px-4 py-3 hover:bg-[var(--hover-bg)] flex items-center gap-3 transition-colors text-[var(--text-primary)] font-medium text-sm"
                                         >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                                             </svg>
                                             {t.quoteRepost || "Quote Repost"}
                                         </button>
@@ -1063,17 +1112,19 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                             {/* Tip Button */}
                             <div className="flex items-center">
                                 {isOwner ? (
-                                    <div className="flex items-center gap-1.5 text-[var(--text-secondary)] opacity-50 cursor-not-allowed" title={t.cannotTipOwn}>
+                                    <div className="flex items-center gap-1 text-[var(--text-secondary)] opacity-50 cursor-not-allowed" title={t.cannotTipOwn}>
                                         <div className="p-2">
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
                                             </svg>
                                         </div>
-                                        <span className="text-sm font-medium">
-                                            {typeof post.totalTips === 'number' 
-                                                ? post.totalTips.toFixed(2) 
-                                                : parseFloat(post.totalTips as string).toFixed(2)}
-                                        </span>
+                                        {(typeof post.totalTips === 'number' ? post.totalTips : parseFloat(post.totalTips as string)) > 0 && (
+                                            <span className="text-xs font-medium">
+                                                {typeof post.totalTips === 'number' 
+                                                    ? post.totalTips.toFixed(1) 
+                                                    : parseFloat(post.totalTips as string).toFixed(1)}
+                                            </span>
+                                        )}
                                     </div>
                                 ) : showTipInput ? (
                                     <div className="flex items-center gap-2 animate-fadeIn bg-[var(--card-bg)] border border-[var(--accent)] rounded-full px-1 py-1">
@@ -1091,145 +1142,150 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         <button
                                             onClick={handleTip}
                                             disabled={tipping}
-                                            className="px-4 py-1.5 bg-[var(--accent)] text-[var(--btn-text-primary)] text-xs font-bold rounded-full hover:opacity-90 disabled:opacity-50 transition-all shadow-sm"
+                                            className="px-3 py-1 bg-[var(--accent)] text-[var(--btn-text-primary)] text-xs font-bold rounded-full hover:opacity-90 disabled:opacity-50 transition-all shadow-sm"
                                         >
                                             {tipping ? '...' : t.tip}
                                         </button>
                                         <button
                                             onClick={() => setShowTipInput(false)}
-                                            className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--hover-bg)] rounded-full transition-colors"
+                                            className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--hover-bg)] rounded-full transition-colors"
                                         >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                             </svg>
                                         </button>
                                     </div>
                                 ) : (
                                     <button
                                         onClick={() => setShowTipInput(true)}
-                                        className="group flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+                                        className="group flex items-center gap-1 text-[var(--text-secondary)] hover:text-yellow-400 transition-colors"
+                                        title={t.tip}
                                     >
-                                        <div className="p-2 rounded-full group-hover:bg-[var(--accent-dim)] transition-colors">
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <div className="p-2 rounded-full group-hover:bg-yellow-400/10 transition-all group-hover:scale-110">
+                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
                                             </svg>
                                         </div>
-                                        <span className="text-sm font-medium">
-                                            {typeof post.totalTips === 'number' 
-                                                ? post.totalTips.toFixed(2) 
-                                                : parseFloat(post.totalTips as string).toFixed(2)}
-                                        </span>
+                                        {(typeof post.totalTips === 'number' ? post.totalTips : parseFloat(post.totalTips as string)) > 0 && (
+                                            <span className="text-xs font-medium text-[var(--text-secondary)] group-hover:text-yellow-400">
+                                                {typeof post.totalTips === 'number' 
+                                                    ? post.totalTips.toFixed(1) 
+                                                    : parseFloat(post.totalTips as string).toFixed(1)}
+                                            </span>
+                                        )}
                                     </button>
                                 )}
                             </div>
 
-                            {/* Vote Buttons */}
-                            <div className="flex items-center gap-1">
+                            {/* Vote Buttons (Compact Pill) */}
+                            <div className="flex items-center bg-[var(--card-border)]/30 rounded-full h-8 border border-transparent hover:border-[var(--card-border)] transition-colors">
                                 <button
                                     onClick={(e) => handleVote(e, 'up')}
                                     disabled={voting}
-                                    className={`group flex items-center gap-1.5 transition-colors ${userVote === 'up' ? 'text-green-500' : 'text-[var(--text-secondary)] hover:text-green-500'}`}
+                                    className={`pl-2 pr-1.5 h-full flex items-center hover:text-green-500 transition-colors ${userVote === 'up' ? 'text-green-500' : 'text-[var(--text-secondary)]'}`}
                                 >
-                                    <div className="p-2 rounded-full group-hover:bg-green-500/10 transition-colors">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                                        </svg>
-                                    </div>
-                                    <span className="text-sm font-medium">{votes.up}</span>
+                                    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                                    </svg>
                                 </button>
+                                <span className={`text-xs font-bold px-0.5 min-w-[12px] text-center ${votes.up > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                                    {votes.up > 0 ? votes.up : ''}
+                                </span>
+                                <div className="w-[1px] h-4 bg-[var(--card-border)] mx-1"></div>
                                 <button
                                     onClick={(e) => handleVote(e, 'down')}
                                     disabled={voting}
-                                    className={`group flex items-center gap-1.5 transition-colors ${userVote === 'down' ? 'text-red-500' : 'text-[var(--text-secondary)] hover:text-red-500'}`}
+                                    className={`pl-1.5 pr-1.5 h-full flex items-center hover:text-red-500 transition-colors ${userVote === 'down' ? 'text-red-500' : 'text-[var(--text-secondary)]'}`}
                                 >
-                                    <div className="p-2 rounded-full group-hover:bg-red-500/10 transition-colors">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </div>
-                                    <span className="text-sm font-medium">{votes.down}</span>
+                                    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                    </svg>
                                 </button>
+                                <span className={`text-xs font-bold px-0.5 pr-2 min-w-[12px] text-center ${votes.down > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                                    {votes.down > 0 ? votes.down : ''}
+                                </span>
                             </div>
 
                             {/* Bookmark Button */}
                             <button
                                 onClick={handleBookmark}
                                 disabled={bookmarking}
-                                className={`group flex items-center gap-1.5 transition-colors ${isBookmarked ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--accent)]'}`}
+                                className={`group flex items-center gap-1 transition-colors ${isBookmarked ? 'text-blue-500' : 'text-[var(--text-secondary)] hover:text-blue-500'}`}
+                                title={t.bookmark}
                             >
-                                <div className="p-2 rounded-full group-hover:bg-[var(--accent-dim)] transition-colors">
-                                    <svg className={`w-5 h-5 ${isBookmarked ? 'fill-current' : 'fill-none'}`} stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                                    </svg>
+                                <div className="p-2 rounded-full group-hover:bg-blue-500/10 transition-all group-hover:scale-110">
+                                    {isBookmarked ? (
+                                        <svg className="w-[20px] h-[20px] fill-current" viewBox="0 0 24 24">
+                                            <path d="M5 5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z" />
+                                        </svg>
+                                    ) : (
+                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
+                                        </svg>
+                                    )}
                                 </div>
-                                {bookmarkCount > 0 && (
-                                    <span className="text-sm font-medium">{bookmarkCount}</span>
-                                )}
                             </button>
 
                             {/* Share Button */}
                             <button 
-                                className={`group flex items-center gap-1.5 transition-colors ${isCopied ? 'text-green-500' : 'text-[var(--text-secondary)] hover:text-blue-500'}`}
+                                className={`group flex items-center gap-1 transition-colors ${isCopied ? 'text-green-500' : 'text-[var(--text-secondary)] hover:text-blue-500'}`}
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     const url = `${window.location.origin}/post/${post.id}`;
                                     navigator.clipboard.writeText(url).then(() => {
                                         setIsCopied(true);
-                                        addNotification("Link copied to clipboard", "success", { persist: false, duration: 1500 });
+                                        addNotification("Link copied", "success", { persist: false, duration: 1500 });
                                         setTimeout(() => setIsCopied(false), 2000);
                                     }).catch(() => {
-                                        addNotification("Failed to copy link", "error", { persist: false });
+                                        addNotification("Failed to copy", "error", { persist: false });
                                     });
                                 }}
                                 title="Copy link"
                             >
                                 <div className={`p-2 rounded-full transition-colors ${isCopied ? 'bg-green-500/10' : 'group-hover:bg-blue-500/10'}`}>
                                     {isCopied ? (
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
                                         </svg>
                                     ) : (
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
                                         </svg>
                                     )}
                                 </div>
-                                {isCopied && <span className="text-xs font-medium">Copied!</span>}
                             </button>
                         </div>
 
                         {/* Comments Preview (Max 3) */}
                         {comments.length > 0 && (
-                            <div className="mt-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                            <div className="mt-2" onClick={(e) => e.stopPropagation()}>
                                 {comments.slice(0, 3).map((comment) => (
-                                    <div key={comment.id} className="relative ml-6 pl-3 border-l-2 border-[var(--card-border)] mt-2 hover:border-[var(--accent)] transition-colors group">
-                                        <div className="flex gap-2 p-1.5 rounded-r-lg hover:bg-[var(--hover-bg)] cursor-pointer" onClick={() => router.push(`/post/${comment.id}`)}>
-                                            <div className="flex-shrink-0">
-                                                <div className="w-5 h-5 rounded-full bg-[var(--card-border)] overflow-hidden">
-                                                    <div className="w-full h-full flex items-center justify-center font-bold text-[10px] text-[var(--text-primary)]">
-                                                        {comment.creator[0].toUpperCase()}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="flex-grow min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-[11px] text-[var(--text-primary)] opacity-90">
-                                                        @{comment.creator.slice(0, 6)}...
-                                                    </span>
-                                                    <span className="text-[var(--text-secondary)] text-[10px]">
-                                                        · {formatRelativeTime(comment.timestamp * 1000)}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-[var(--text-primary)] line-clamp-2 opacity-90">
-                                                    {comment.content}
-                                                </p>
-                                            </div>
-                                        </div>
+                                    <div key={comment.id} className="relative mt-2">
+                                        <div className="absolute left-[-32px] top-[-10px] bottom-0 w-[2px] bg-[var(--card-border)] rounded-full"></div>
+                                        <PostCard
+                                            post={{
+                                                id: comment.id.toString(),
+                                                creatorAddress: comment.creator,
+                                                creatorHandle: undefined,
+                                                creatorAvatar: undefined,
+                                                content: comment.content,
+                                                image_url: comment.image_url,
+                                                style: comment.style,
+                                                totalTips: octasToMove(comment.total_tips),
+                                                createdAt: comment.timestamp * 1000,
+                                                updatedAt: comment.updated_at,
+                                                commentCount: 0 // We don't need to show comment count for previewed comments usually
+                                            }}
+                                            isOwner={account?.address?.toString() === comment.creator}
+                                            hideComments={true}
+                                            compact={true}
+                                            showTipButton={true}
+                                        />
                                     </div>
                                 ))}
                                 {comments.length > 3 && (
                                     <button 
-                                        className="text-[10px] text-[var(--accent)] hover:underline w-full text-left ml-6 pl-3 mt-2"
+                                        className="text-[13px] text-[var(--accent)] hover:underline w-full text-left mt-2"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             router.push(`/post/${post.id}`);

@@ -8,9 +8,11 @@
 
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { useState, useEffect } from 'react';
+import { useNetwork } from '@/contexts/NetworkContext';
 
 export function NetworkWarning() {
     const { network } = useWallet();
+    const { currentNetwork } = useNetwork();
     const [showWarning, setShowWarning] = useState(false);
 
     useEffect(() => {
@@ -19,18 +21,24 @@ export function NetworkWarning() {
             return;
         }
 
-        // Check if wallet is on Mainnet
-        // We only warn about Mainnet because that's definitely wrong for this Testnet app
-        const isMainnet = network.name && network.name.toLowerCase().includes('mainnet');
+        const isWalletMainnet = (network.name && network.name.toLowerCase().includes('mainnet')) || network.chainId === '126' || network.chainId === '3073';
+        // Simple check for testnet-like keywords or IDs
+        const isWalletTestnet = (network.name && (network.name.toLowerCase().includes('testnet') || network.name.toLowerCase().includes('bardock'))) || 
+                                ['250', '177', '27'].includes(network.chainId?.toString() || '');
 
-        if (isMainnet) {
+        if (currentNetwork === 'testnet' && isWalletMainnet) {
+            setShowWarning(true);
+        } else if (currentNetwork === 'mainnet' && isWalletTestnet) {
             setShowWarning(true);
         } else {
             setShowWarning(false);
         }
-    }, [network]);
+    }, [network, currentNetwork]);
 
     if (!showWarning) return null;
+
+    const requiredNetwork = currentNetwork === 'testnet' ? 'Movement Bardock Testnet' : 'Movement Mainnet';
+    const wrongNetwork = currentNetwork === 'testnet' ? 'Mainnet' : 'Testnet';
 
     return (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 max-w-2xl w-full mx-4">
@@ -44,15 +52,15 @@ export function NetworkWarning() {
                     <div className="flex-1">
                         <h3 className="text-lg font-bold text-red-500 mb-2">⚠️ Wrong Network Detected!</h3>
                         <p className="text-white mb-3">
-                            Your wallet is connected to <strong>Movement Mainnet</strong>, but this app requires <strong>Movement Testnet</strong>.
+                            Your wallet is connected to <strong>{wrongNetwork}</strong>, but this app is in <strong>{currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'}</strong> mode.
                         </p>
                         <div className="bg-black/30 rounded p-3 mb-3">
                             <p className="text-sm text-white/90 mb-2"><strong>To fix:</strong></p>
                             <ol className="text-sm text-white/80 space-y-1 list-decimal list-inside">
                                 <li>Open your Wallet extension</li>
                                 <li>Click on the network dropdown</li>
-                                <li>Switch to <strong>Movement Testnet</strong></li>
-                                <li>Refresh this page</li>
+                                <li>Switch to <strong>{requiredNetwork}</strong></li>
+                                <li>Refresh this page if needed</li>
                             </ol>
                         </div>
                         <button

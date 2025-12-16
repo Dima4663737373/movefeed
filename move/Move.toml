@@ -3,20 +3,20 @@ name = "TipJar"
 version = "1.0.0"
 
 [addresses]
-tipjar_addr = "0x87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb"
+tipjar_addr = "0x9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204"
 
 [dependencies.AptosFramework]
 git = "https://github.com/movementlabsxyz/aptos-core"
-rev = "main"
+rev = "ab80decffca5dd83991b5783073fe66ddde2836d"
 subdir = "aptos-move/framework/aptos-framework"
 
 [dependencies.AptosStdlib]
 git = "https://github.com/movementlabsxyz/aptos-core"
-rev = "main"
+rev = "ab80decffca5dd83991b5783073fe66ddde2836d"
 subdir = "aptos-move/framework/aptos-stdlib"
 
 [dependencies.MoveStdlib]
 git = "https://github.com/movementlabsxyz/aptos-core"
-rev = "main"
+rev = "ab80decffca5dd83991b5783073fe66ddde2836d"
 subdir = "aptos-move/framework/move-stdlib"
 

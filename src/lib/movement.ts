@@ -12,6 +12,9 @@
 // Updated to working endpoint after DNS resolution failure on bardock subdomain
 export const MOVEMENT_TESTNET_RPC_DIRECT = "https://testnet.movementnetwork.xyz/v1";
 
+// Movement Mainnet RPC endpoint (direct)
+export const MOVEMENT_MAINNET_RPC_DIRECT = "https://mainnet.movementnetwork.xyz/v1";
+
 // Movement Bardock Testnet RPC endpoint
 // Updated to use Bardock testnet as per documentation
 // Using proxy API route to avoid CORS issues in browser
@@ -19,18 +22,107 @@ export const MOVEMENT_TESTNET_RPC = typeof window !== 'undefined'
     ? "/api/movement" // Use proxy in browser to avoid CORS
     : MOVEMENT_TESTNET_RPC_DIRECT;  // Direct in server-side
 
+// Movement Mainnet RPC endpoint
+export const MOVEMENT_MAINNET_RPC = typeof window !== 'undefined'
+    ? "/api/movement-mainnet" // Use proxy in browser to avoid CORS
+    : MOVEMENT_MAINNET_RPC_DIRECT;  // Direct in server-side
+
 // Movement Bardock Testnet Indexer endpoint
 export const MOVEMENT_TESTNET_INDEXER_DIRECT = "https://indexer.testnet.movementnetwork.xyz/v1/graphql";
 export const MOVEMENT_TESTNET_INDEXER = typeof window !== 'undefined'
     ? "/api/movement-indexer"
     : MOVEMENT_TESTNET_INDEXER_DIRECT;
 
+// Movement Mainnet Indexer endpoint (Placeholder - using direct RPC or similar structure if available)
+// For now, we will use the same structure if we can guess, or leave it undefined if acceptable.
+// Given we don't have it, we might skip it or use a known one if found. 
+// User didn't provide it. Let's try to infer or just use undefined/null for now and handle it.
+// Actually, let's just use the RPC URL as a placeholder if needed, or null.
+// But AptosConfig expects a string. 
+// Let's assume standard naming: https://indexer.mainnet.movementnetwork.xyz/v1/graphql ??
+// Safest is to not define it if not known, but the client might need it.
+// Let's leave it as empty string or undefined for now in the config object.
+
 // Movement Bardock Testnet Chain ID
 // Note: This is based on Movement documentation
-export const MOVEMENT_CHAIN_ID = 250;
+export const MOVEMENT_TESTNET_CHAIN_ID = 250;
+export const MOVEMENT_CHAIN_ID = MOVEMENT_TESTNET_CHAIN_ID; // Deprecated alias
+
+// Movement Mainnet Chain ID
+export const MOVEMENT_MAINNET_CHAIN_ID = 126;
 
 // Movement Network name for display purposes
 export const MOVEMENT_NETWORK_NAME = "Movement Bardock Testnet";
+export const MOVEMENT_MAINNET_NAME = "Movement Mainnet";
+
+export type NetworkType = 'testnet' | 'mainnet';
+
+export interface NetworkConfig {
+    type: NetworkType;
+    chainId: number;
+    evmChainId?: number;
+    rpcUrl: string;
+    indexerUrl?: string;
+    networkName: string;
+    explorerUrl: string;
+    moduleAddress: string;
+}
+
+export const NETWORKS: Record<NetworkType, NetworkConfig> = {
+    testnet: {
+        type: 'testnet',
+        chainId: MOVEMENT_TESTNET_CHAIN_ID,
+        evmChainId: 250, // Standard Movement Testnet EVM Chain ID
+        rpcUrl: MOVEMENT_TESTNET_RPC,
+        indexerUrl: MOVEMENT_TESTNET_INDEXER,
+        networkName: MOVEMENT_NETWORK_NAME,
+        explorerUrl: "https://explorer.movementnetwork.xyz/?network=testnet",
+        // Testnet Module Address
+        moduleAddress: "0x87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb"
+    },
+    mainnet: {
+        type: 'mainnet',
+        chainId: MOVEMENT_MAINNET_CHAIN_ID,
+        evmChainId: 3073, // Mainnet EVM Chain ID
+        rpcUrl: MOVEMENT_MAINNET_RPC,
+        // indexerUrl: ... // User didn't provide
+        networkName: MOVEMENT_MAINNET_NAME,
+        explorerUrl: "https://explorer.movementnetwork.xyz",
+        // Mainnet Module Address
+        moduleAddress: "0x9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204"
+    }
+};
+
+export function getStoredNetwork(): NetworkType {
+    if (typeof window === 'undefined') return 'testnet';
+    return (localStorage.getItem('movement_network') as NetworkType) || 'testnet';
+}
+
+export function getCurrentNetworkConfig(): NetworkConfig {
+    const type = getStoredNetwork();
+    const config = NETWORKS[type] || NETWORKS.testnet;
+
+    // Force proxy URL in browser to avoid CORS and ensure dynamic resolution
+    if (typeof window !== 'undefined') {
+        if (config.type === 'mainnet') {
+            return {
+                ...config,
+                rpcUrl: "/api/movement-mainnet"
+            };
+        } else if (config.type === 'testnet') {
+            return {
+                ...config,
+                rpcUrl: "/api/movement"
+            };
+        }
+    }
+
+    return config;
+}
+
+export function getModuleAddress(): string {
+    return getCurrentNetworkConfig().moduleAddress;
+}
 
 /**
  * Movement Network configuration object
@@ -113,7 +205,7 @@ export function isValidMovementAddress(address: string): boolean {
  * 
  * Example format: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
  */
-export const TIPJAR_MODULE_ADDRESS = "0x87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb";
+export const TIPJAR_MODULE_ADDRESS = getCurrentNetworkConfig().moduleAddress;
 
 /**
  * Movement Bardock Testnet Faucet URL

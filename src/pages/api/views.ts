@@ -20,8 +20,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .single();
 
         if (error && error.code !== 'PGRST116') { // PGRST116 is "No rows found"
-            console.error("Error fetching views:", error);
-            return res.status(500).json({ error: error.message });
+            // Gracefully handle missing table (42P01) or other DB errors
+            console.warn("Error fetching views (likely missing table):", error.message);
+            return res.status(200).json({ viewCount: 0 });
         }
 
         return res.status(200).json({ viewCount: data?.view_count || 0 });
@@ -33,43 +34,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(400).json({ error: 'Post ID is required' });
         }
 
-        // Try using RPC function first (atomic increment)
-        const { error: rpcError } = await supabaseAdmin.rpc('increment_view_count', {
-            p_post_id: postId.toString()
-        });
+        try {
+            // Try using RPC function first (atomic increment)
+            const { error: rpcError } = await supabaseAdmin.rpc('increment_view_count', {
+                p_post_id: postId.toString()
+            });
 
-        if (rpcError) {
-            console.warn("RPC increment failed, falling back to manual upsert:", rpcError);
-
-            // Fallback: Check if row exists, then update or insert
-            // This is race-condition prone but better than failing
-            const { data: existing } = await supabaseAdmin
-                .from('post_views')
-                .select('view_count')
-                .eq('post_id', postId.toString())
-                .single();
-
-            if (existing) {
-                const { error: updateError } = await supabaseAdmin
+            if (rpcError) {
+                // Fallback: Check if row exists, then update or insert
+                // This is race-condition prone but better than failing
+                const { data: existing, error: fetchError } = await supabaseAdmin
                     .from('post_views')
-                    .update({ 
-                        view_count: existing.view_count + 1,
-                        last_updated: new Date().toISOString()
-                    })
-                    .eq('post_id', postId.toString());
+                    .select('view_count')
+                    .eq('post_id', postId.toString())
+                    .single();
                 
-                if (updateError) throw updateError;
-            } else {
-                const { error: insertError } = await supabaseAdmin
-                    .from('post_views')
-                    .insert({ 
-                        post_id: postId.toString(), 
-                        view_count: 1,
-                        last_updated: new Date().toISOString()
-                    });
-                
-                if (insertError) throw insertError;
+                // If table doesn't exist, this will error
+                if (fetchError && fetchError.code === '42P01') {
+                     console.warn("post_views table missing, skipping view increment");
+                     return res.status(200).json({ success: true, skipped: true });
+                }
+
+                if (existing) {
+                    const { error: updateError } = await supabaseAdmin
+                        .from('post_views')
+                        .update({ 
+                            view_count: existing.view_count + 1,
+                            last_updated: new Date().toISOString()
+                        })
+                        .eq('post_id', postId.toString());
+                    
+                    if (updateError) throw updateError;
+                } else {
+                    const { error: insertError } = await supabaseAdmin
+                        .from('post_views')
+                        .insert({ 
+                            post_id: postId.toString(), 
+                            view_count: 1,
+                            last_updated: new Date().toISOString()
+                        });
+                    
+                    if (insertError) throw insertError;
+                }
             }
+        } catch (e: any) {
+             console.error("View increment failed:", e.message);
+             // Return 200 to prevent client retries/errors
+             return res.status(200).json({ success: false, error: e.message });
         }
 
         return res.status(200).json({ success: true });

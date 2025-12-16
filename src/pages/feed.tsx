@@ -44,13 +44,9 @@ export default function FeedPage() {
 
     const userAddress = account?.address.toString() || "";
 
-    // Debug state
-    const [debugInfo, setDebugInfo] = useState<string>("");
-
     // Fetch Global Posts & Stats
     const fetchGlobalData = async () => {
         setLoadingGlobal(true);
-        let log = "Starting fetch...\n";
 
         try {
             // Get stats and global count first
@@ -59,7 +55,6 @@ export default function FeedPage() {
                 getGlobalPostsCount()
             ]);
             
-            log += `Global Count: ${globalCount}\n`;
             console.log("Global posts count:", globalCount);
 
             // Use pagination to fetch the latest posts
@@ -74,10 +69,8 @@ export default function FeedPage() {
             // Try paginated fetch first
             try {
                 displayPosts = await getAllPostsPaginated(start, LIMIT);
-                log += `Paginated Fetch: ${displayPosts.length} posts\n`;
                 console.log("Fetched posts via pagination:", displayPosts.length);
             } catch (e) {
-                log += `Paginated Fetch Error: ${e}\n`;
                 console.warn("Pagination fetch failed, trying fallback...", e);
             }
 
@@ -85,7 +78,6 @@ export default function FeedPage() {
             // try fetching them one by one (latest first)
             if (displayPosts.length === 0 && globalCount > 0) {
                 console.log("Pagination returned empty. Entering fallback mode.");
-                log += "Entering Fallback Mode (Individual IDs)...\n";
                 
                 const fallbackPosts: OnChainPost[] = [];
                 // Fetch ALL available posts if count is small (up to 20), otherwise last 20
@@ -97,8 +89,6 @@ export default function FeedPage() {
                 for (let i = 0; i < fetchAmount; i++) {
                     idsToFetch.push(globalCount - i);
                 }
-                
-                log += `Fetching IDs: ${idsToFetch.join(', ')}\n`;
                 
                 // Fetch in parallel
                 const results = await Promise.all(
@@ -117,30 +107,25 @@ export default function FeedPage() {
                     if (post) fallbackPosts.push(post);
                 });
                 
-                log += `Fallback Results: ${fallbackPosts.length} posts found\n`;
                 console.log("Fetched posts via fallback:", fallbackPosts.length);
                 displayPosts = fallbackPosts;
             }
             
             // Fallback 2: If individual fetch also failed
             if (displayPosts.length === 0 && globalCount > 0) {
-                 log += "Trying Fallback 2: getAllPosts() (deprecated)...\n";
                  try {
                      const allPosts = await getAllPosts();
-                     log += `getAllPosts Result: ${allPosts.length}\n`;
                      if (allPosts.length > 0) {
                          displayPosts = allPosts;
                      }
                  } catch (e) {
-                     log += `getAllPosts Error: ${e}\n`;
+                     // ignore
                  }
             }
 
             // Sort by timestamp descending (newest first)
             displayPosts.sort((a, b) => b.timestamp - a.timestamp);
             
-            setDebugInfo(log);
-
             // Calculate comment counts (only for visible posts)
             const counts: Record<number, number> = {};
             displayPosts.forEach(post => {
@@ -287,47 +272,21 @@ export default function FeedPage() {
                 </div>
             </header>
 
-            <main className="container-custom py-6 md:py-10">
+            <main className="container-custom pb-6 md:pb-10">
                 <div className="max-w-[1280px] mx-auto">
                     
                     <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] xl:grid-cols-[240px_1fr_280px] gap-y-8 lg:gap-x-0 lg:divide-x lg:divide-[var(--card-border)]">
                         {/* LEFT SIDEBAR: Profile & Create Post */}
-                        <div className="lg:pr-6">
+                        <div className="lg:pr-6 pt-6">
                             <div className="space-y-6">
                             {/* Navigation Sidebar */}
                             <LeftSidebar activePage="home" currentUserAddress={userAddress} displayName={myDisplayName} avatar={myAvatar} />
-
-                            {/* Create Post - First for easy access */}
-                            <CreatePostForm onPostCreated={(newPost) => {
-                                if (newPost) {
-                                    setOptimisticPosts(prev => [newPost, ...prev]);
-                                }
-                                fetchGlobalData();
-                                fetchProfileData();
-                            }} />
                         </div>
                     </div>
 
-                    {/* CENTER: Feed */}
-                            <div className="min-w-0 lg:px-6">
-                                <div className="flex items-center justify-between mb-4 px-4 lg:px-0">
-                                    <h2 className="text-xl font-bold text-[var(--text-primary)]">{t.feed}</h2>
-                                    <button
-                                        onClick={fetchGlobalData}
-                                        className="p-2 text-[var(--accent)] hover:bg-[var(--accent-dim)] rounded-full transition-colors"
-                                        title={t.feed}
-                                    >
-                                        <svg className={`w-5 h-5 ${loadingGlobal ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                        </svg>
-                                    </button>
-                                </div>
+                        {/* CENTER: Feed */}
+                        <div className="min-w-0">
                                 
-                                {/* Debug Info */}
-                                <div className="mb-4 p-2 bg-gray-900 text-xs font-mono text-green-400 overflow-auto max-h-40 rounded border border-gray-700">
-                                    <pre>{debugInfo}</pre>
-                                </div>
-
                                 {loadingGlobal ? (
                                     <div className="space-y-4">
                                         {[1, 2, 3].map(i => (
@@ -335,7 +294,7 @@ export default function FeedPage() {
                                         ))}
                                     </div>
                                 ) : (globalPosts.length > 0 || optimisticPosts.length > 0) ? (
-                                    <div className="border-t border-[var(--card-border)]">
+                                    <div>
                                         {[...optimisticPosts, ...globalPosts]
                                             // Filter out comments from the main feed
                                             .filter(post => !post.is_comment)
@@ -382,7 +341,7 @@ export default function FeedPage() {
                             </div>
 
                         {/* RIGHT SIDEBAR */}
-                        <div className="hidden xl:block xl:pl-6">
+                        <div className="hidden xl:block xl:pl-6 pt-6">
                             <RightSidebar
                                 posts={globalPosts}
                                 stats={stats}

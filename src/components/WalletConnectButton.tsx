@@ -12,9 +12,11 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { getBalance } from '@/lib/movementClient';
 import { useRouter } from 'next/router';
+import { useNetwork } from '@/contexts/NetworkContext';
 
 export function WalletConnectButton() {
     const { connected, account, connect, disconnect, wallets, network } = useWallet();
+    const { currentNetwork, switchNetwork, networkConfig } = useNetwork();
     const [showModal, setShowModal] = useState(false);
     const [balance, setBalance] = useState<number>(0);
     const router = useRouter();
@@ -26,19 +28,41 @@ export function WalletConnectButton() {
         // Check by Chain ID
         if (network.chainId) {
             const chainId = network.chainId.toString();
-            // 250: Movement Bardock
-            // 177: Movement Porto (sometimes used)
-            // 27: Aptos Testnet (sometimes used with custom RPC)
-            return chainId === MOVEMENT_CHAIN_ID.toString() || chainId === '177' || chainId === '27';
+            const expectedChainId = networkConfig.chainId.toString();
+
+            // Strict check against current network config
+            if (chainId === expectedChainId) return true;
+
+            // Allow alternates if needed
+            if (currentNetwork === 'testnet') {
+                // 250: Movement Bardock
+                // 177: Movement Porto (sometimes used)
+                // 27: Aptos Testnet (sometimes used with custom RPC)
+                return chainId === '250' || chainId === '177' || chainId === '27';
+            }
+
+            if (currentNetwork === 'mainnet') {
+                // 126: Movement Mainnet
+                // 3073: Movement Mainnet EVM (future proofing)
+                return chainId === '126' || chainId === '3073';
+            }
+
+            return false;
         }
 
         // Check by Name if Chain ID is missing (some wallets)
         if (network.name) {
             const name = network.name.toLowerCase();
-            // Explicitly exclude Mainnet
-            if (name.includes('mainnet')) return false;
             
-            return name.includes('movement') || name.includes('bardock') || name.includes('testnet');
+            if (currentNetwork === 'testnet') {
+                // Explicitly exclude Mainnet
+                if (name.includes('mainnet')) return false;
+                return name.includes('movement') || name.includes('bardock') || name.includes('testnet');
+            }
+
+            if (currentNetwork === 'mainnet') {
+                return name.includes('mainnet') || name.includes('movement');
+            }
         }
 
         return true; // Default to true to avoid false positives if we can't determine
@@ -49,6 +73,9 @@ export function WalletConnectButton() {
         const fetchBalance = async () => {
             if (connected && account) {
                 try {
+                    // Pass current network config to ensure correct RPC is used
+                    // Although getBalance internally uses getCurrentNetworkConfig which reads from localStorage,
+                    // triggering re-render via context ensures consistency.
                     const bal = await getBalance(account.address.toString());
                     setBalance(bal);
                 } catch (error) {
@@ -62,7 +89,7 @@ export function WalletConnectButton() {
         // Refresh balance every 10 seconds
         const interval = setInterval(fetchBalance, 10000);
         return () => clearInterval(interval);
-    }, [connected, account]);
+    }, [connected, account, currentNetwork]); // Re-fetch when network changes
 
     const handleConnect = async (walletName: any) => {
         try {
@@ -125,6 +152,22 @@ export function WalletConnectButton() {
     if (connected && account) {
         return (
             <div className="flex items-center gap-4">
+                {/* Network Toggle */}
+                <div className="flex bg-[var(--card-bg)] rounded-full p-1 border border-[var(--card-border)]">
+                    <button 
+                        onClick={() => switchNetwork('testnet')}
+                        className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${currentNetwork === 'testnet' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+                    >
+                        Testnet
+                    </button>
+                    <button 
+                        onClick={() => switchNetwork('mainnet')}
+                        className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${currentNetwork === 'mainnet' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+                    >
+                        Mainnet
+                    </button>
+                </div>
+
                 {/* Network Check */}
                 {!isNetworkValid() && (
                     <div className="hidden md:flex flex-col items-end justify-center px-4 py-2 bg-red-500/10 border border-red-500/50 rounded-xl min-w-[120px]">
@@ -170,7 +213,22 @@ export function WalletConnectButton() {
     }
 
     return (
-        <>
+        <div className="flex items-center gap-4">
+            <div className="flex bg-[var(--card-bg)] rounded-full p-1 border border-[var(--card-border)]">
+                <button 
+                    onClick={() => switchNetwork('testnet')}
+                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${currentNetwork === 'testnet' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+                >
+                    Testnet
+                </button>
+                <button 
+                    onClick={() => switchNetwork('mainnet')}
+                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${currentNetwork === 'mainnet' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+                >
+                    Mainnet
+                </button>
+            </div>
+
             <button
                 onClick={() => setShowModal(true)}
                 className="bg-[var(--accent)] text-[var(--btn-text-primary)] font-bold px-6 py-2 rounded-full hover:opacity-90 transition-opacity shadow-lg shadow-[var(--accent)]/20"
@@ -266,6 +324,6 @@ export function WalletConnectButton() {
                 </div>,
                 document.body
             )}
-        </>
+        </div>
     );
 }

@@ -9,10 +9,10 @@ compiled_package_info:
     aptos_token: "0000000000000000000000000000000000000000000000000000000000000003"
     core_resources: 000000000000000000000000000000000000000000000000000000000a550c18
     std: "0000000000000000000000000000000000000000000000000000000000000001"
-    tipjar_addr: 87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb
+    tipjar_addr: 9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204
     vm: "0000000000000000000000000000000000000000000000000000000000000000"
     vm_reserved: "0000000000000000000000000000000000000000000000000000000000000000"
-  source_digest: EE715E49958C3FCBCDACE6D5F2F0FA1E43FCCD6B62ECFB12E7600F951AF4E60A
+  source_digest: FECCAD20967E44BD030EA27AE04905CA15D10D8D1703F4F5277AEF2A84162BBA
   build_flags:
     dev_mode: false
     test_mode: false
@@ -24,11 +24,11 @@ compiled_package_info:
     install_dir: ~
     force_recompilation: false
     additional_named_addresses:
-      tipjar_addr: 87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb
+      tipjar_addr: 9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204
     fetch_deps_only: false
     skip_fetch_latest_git_deps: false
     compiler_config:
-      bytecode_version: 7
+      bytecode_version: 6
       known_attributes:
         - bytecode_instruction
         - deprecated

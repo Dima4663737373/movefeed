@@ -5,19 +5,20 @@
  */
 
 import { Aptos, AptosConfig, Network, AccountAddress } from "@aptos-labs/ts-sdk";
-import { MOVEMENT_TESTNET_RPC, MOVEMENT_TESTNET_INDEXER, convertToMovementAddress, octasToMove, TIPJAR_MODULE_ADDRESS, DEFAULT_GAS_CONFIG, GasEstimation } from "./movement";
+import { MOVEMENT_TESTNET_RPC, MOVEMENT_TESTNET_INDEXER, convertToMovementAddress, octasToMove, TIPJAR_MODULE_ADDRESS, DEFAULT_GAS_CONFIG, GasEstimation, getCurrentNetworkConfig, NetworkConfig } from "./movement";
 
 /**
  * Get configured Aptos client for Movement Network
  * 
  * We use Aptos SDK with custom network configuration pointing to Movement RPC
  */
-export function getAptosClient(): Aptos {
+export function getAptosClient(configOverride?: NetworkConfig): Aptos {
+  const currentConfig = configOverride || getCurrentNetworkConfig();
   const config = new AptosConfig({
     network: Network.CUSTOM,
-    fullnode: MOVEMENT_TESTNET_RPC,
-    indexer: MOVEMENT_TESTNET_INDEXER,
-    // We use a custom network since Movement is not in the default Aptos Network enum
+    fullnode: currentConfig.rpcUrl,
+    indexer: currentConfig.indexerUrl,
+    chainId: currentConfig.chainId,
   });
 
   return new Aptos(config);
@@ -77,7 +78,9 @@ export const getBalance = getMovementBalance;
 export async function accountExists(address: string): Promise<boolean> {
   try {
     const client = getAptosClient();
-    const accountAddress = AccountAddress.from(address);
+    // Convert EVM address if needed
+    const movementAddress = convertToMovementAddress(address);
+    const accountAddress = AccountAddress.from(movementAddress);
 
     await client.getAccountInfo({
       accountAddress: accountAddress,
@@ -99,7 +102,9 @@ export async function accountExists(address: string): Promise<boolean> {
 export async function getAccountInfo(address: string) {
   try {
     const client = getAptosClient();
-    const accountAddress = AccountAddress.from(address);
+    // Convert EVM address if needed
+    const movementAddress = convertToMovementAddress(address);
+    const accountAddress = AccountAddress.from(movementAddress);
 
     const accountInfo = await client.getAccountInfo({
       accountAddress: accountAddress,
@@ -173,6 +178,11 @@ export async function getTipHistory(targetAddress?: string) {
       return [];
     }
 
+    // Normalize address to Movement format (32 bytes) for consistent matching
+    const normalizedAddress = convertToMovementAddress(addressToCheck);
+    // Also keep the short version (no 0x, no padding) if needed for some comparisons, 
+    // but usually on-chain data is full 32 bytes (64 hex chars).
+    
     // 1. Fetch Tips from Events (Received AND Sent)
     let onChainTips: any[] = [];
     try {
@@ -189,20 +199,18 @@ export async function getTipHistory(targetAddress?: string) {
       onChainTips = events
         .filter((e: any) => {
           // Filter where we are either the creator (receiver) or tipper (sender)
-          const isReceiver = e.data.creator === addressToCheck ||
-            e.data.creator === addressToCheck?.replace('0x', '') ||
-            `0x${e.data.creator}` === addressToCheck;
+          // Normalize event addresses to ensure consistent comparison
+          const eventCreator = convertToMovementAddress(e.data.creator);
+          const eventTipper = convertToMovementAddress(e.data.tipper);
 
-          const isSender = e.data.tipper === addressToCheck ||
-            e.data.tipper === addressToCheck?.replace('0x', '') ||
-            `0x${e.data.tipper}` === addressToCheck;
+          const isReceiver = eventCreator === normalizedAddress;
+          const isSender = eventTipper === normalizedAddress;
 
           return isReceiver || isSender;
         })
         .map((e: any) => {
-          const isReceiver = e.data.creator === addressToCheck ||
-            e.data.creator === addressToCheck?.replace('0x', '') ||
-            `0x${e.data.creator}` === addressToCheck;
+          const eventCreator = convertToMovementAddress(e.data.creator);
+          const isReceiver = eventCreator === normalizedAddress;
 
           return {
             sender: e.data.tipper,
@@ -221,10 +229,10 @@ export async function getTipHistory(targetAddress?: string) {
       // Check last 100 posts for tips as a scalable fallback
       let posts: any[] = [];
       try {
-        const count = await getUserPostsCount(addressToCheck);
+        const count = await getUserPostsCount(normalizedAddress);
         const LIMIT = 100;
         const start = Math.max(0, count - LIMIT);
-        posts = await getUserPostsPaginated(addressToCheck, start, LIMIT);
+        posts = await getUserPostsPaginated(normalizedAddress, start, LIMIT);
       } catch (err) {
         console.error("Error fetching fallback posts for tips:", err);
       }
@@ -233,7 +241,7 @@ export async function getTipHistory(targetAddress?: string) {
         .filter(post => post.total_tips > 0)
         .map(post => ({
           sender: 'Tips on Post',
-          receiver: addressToCheck,
+          receiver: normalizedAddress,
           amount: octasToMove(post.total_tips),
           timestamp: post.last_tip_timestamp || post.timestamp,
           hash: `post-${post.id}`, // Fallback hash
@@ -262,12 +270,18 @@ export async function getTipHistory(targetAddress?: string) {
       try {
         const res = await fetch(`/api/tips?userAddress=${addressToCheck}`);
         if (res.ok) {
-            const serverTips = await res.json();
-            localSentTips = serverTips.map((tip: any) => ({
-              ...tip,
-              // Normalize timestamp to seconds if it's in milliseconds
-              timestamp: tip.timestamp > 100000000000 ? Math.floor(tip.timestamp / 1000) : tip.timestamp
-            }));
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                const serverTips = await res.json();
+                localSentTips = serverTips.map((tip: any) => ({
+                ...tip,
+                // Normalize timestamp to seconds if it's in milliseconds
+                timestamp: tip.timestamp > 100000000000 ? Math.floor(tip.timestamp / 1000) : tip.timestamp
+                }));
+            } else {
+                const text = await res.text();
+                console.warn(`API /api/tips returned non-JSON response: ${text.substring(0, 100)}...`);
+            }
         } else {
             // Log the error details from the server
             const errBody = await res.text();
@@ -355,13 +369,21 @@ export async function getGasEstimation(): Promise<GasEstimation> {
  */
 export async function getStats() {
   try {
-    // Import here to avoid circular dependency
-    const { Aptos, AptosConfig, Network } = await import('@aptos-labs/ts-sdk');
-    const { MOVEMENT_TESTNET_RPC, TIPJAR_MODULE_ADDRESS, octasToMove } = await import('./movement');
+    const currentConfig = getCurrentNetworkConfig();
+    const moduleAddress = currentConfig.moduleAddress;
+
+    // Check if module address is configured (Mainnet safety)
+    if (!moduleAddress || moduleAddress.length < 10) {
+        return {
+            totalTips: 0,
+            totalVolume: 0,
+            topTipper: "None"
+        };
+    }
 
     const config = new AptosConfig({ 
         network: Network.CUSTOM,
-        fullnode: MOVEMENT_TESTNET_RPC 
+        fullnode: currentConfig.rpcUrl 
     });
     const aptos = new Aptos(config);
     const MODULE_NAME = "MoveFeedV3";
@@ -376,7 +398,7 @@ export async function getStats() {
 
     try {
       const payload = {
-        function: `${TIPJAR_MODULE_ADDRESS}::${MODULE_NAME}::get_global_tip_stats` as `${string}::${string}::${string}`,
+        function: `${moduleAddress}::${MODULE_NAME}::get_global_tip_stats` as `${string}::${string}::${string}`,
         functionArguments: [],
       };
 

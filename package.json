@@ -20,6 +20,7 @@
     "@wallet-standard/core": "^1.1.1",
     "aptos": "^1.22.1",
     "dompurify": "^3.3.0",
+    "emoji-picker-react": "^4.16.1",
     "formidable": "^3.5.4",
     "got": "^14.6.5",
     "next": "^16.0.10",

@@ -6,18 +6,20 @@
  */
 
 import { Aptos, AptosConfig, Network } from '@aptos-labs/ts-sdk';
-import { MOVEMENT_TESTNET_RPC, TIPJAR_MODULE_ADDRESS, moveToOctas, DEFAULT_GAS_CONFIG, convertToMovementAddress } from './movement';
+import { getCurrentNetworkConfig, getModuleAddress, moveToOctas, convertToMovementAddress } from './movement';
 import { TipPayloadParams, TipEvent } from '@/types/tip';
 import { CreatePostParams } from '@/types/post';
 import { getGasEstimation } from './movementClient';
 
-// Configure Aptos client for Movement Network
-const aptosConfig = new AptosConfig({
-    network: Network.CUSTOM,
-    fullnode: MOVEMENT_TESTNET_RPC,
-});
-
-const aptos = new Aptos(aptosConfig);
+// Helper to get dynamic client based on current network
+function getAptosClient() {
+    const currentConfig = getCurrentNetworkConfig();
+    const config = new AptosConfig({
+        network: Network.CUSTOM,
+        fullnode: currentConfig.rpcUrl,
+    });
+    return new Aptos(config);
+}
 
 /**
  * Build transaction payload for tipping
@@ -32,6 +34,11 @@ export async function buildTipPostPayload(
     params: TipPayloadParams,
     gasEstimation?: { maxGasAmount: number; gasUnitPrice: number }
 ): Promise<any> {
+    const TIPJAR_MODULE_ADDRESS = getModuleAddress();
+    if (!TIPJAR_MODULE_ADDRESS || TIPJAR_MODULE_ADDRESS.length < 10) {
+        throw new Error("Tipping is not enabled on this network (Module address not configured).");
+    }
+
     const { creatorAddress, amount, postId } = params;
 
     // Ensure address is in 32-byte format (Movement requirement)
@@ -91,7 +98,8 @@ export async function sendTipToPost(
         console.log('✅ Transaction submitted:', response.hash);
 
         // Wait for transaction confirmation
-        await aptos.waitForTransaction({
+        const client = getAptosClient();
+        await client.waitForTransaction({
             transactionHash: response.hash,
         });
 
@@ -117,6 +125,11 @@ export async function buildCreatePostPayload(
     gasEstimation?: { maxGasAmount: number; gasUnitPrice: number }
 ): Promise<any> {
     const { content, style } = params;
+    const TIPJAR_MODULE_ADDRESS = getModuleAddress();
+
+    if (!TIPJAR_MODULE_ADDRESS) {
+        throw new Error("Module address not configured.");
+    }
 
     // Map style to number (0 = minimal, 1 = gradient, 2 = bold)
     const styleMap = { minimal: 0, gradient: 1, bold: 2 };
@@ -171,7 +184,8 @@ export async function createPost(
 
         console.log('✅ Post created:', response.hash);
 
-        await aptos.waitForTransaction({
+        const client = getAptosClient();
+        await client.waitForTransaction({
             transactionHash: response.hash,
         });
 

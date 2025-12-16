@@ -515,7 +515,7 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                 <button
                     type="submit"
                     disabled={!connected || creating || (!content.trim() && mediaItems.length === 0 && !repostOf)}
-                    className="px-6 py-2 bg-[var(--accent)] hover:opacity-90 text-[var(--btn-text-primary)] font-bold rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    className="px-6 py-2 bg-[var(--accent)] hover:brightness-110 text-[var(--btn-text-primary)] font-bold rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                 >
                     {creating ? (
                         <span className="flex items-center justify-center gap-2">

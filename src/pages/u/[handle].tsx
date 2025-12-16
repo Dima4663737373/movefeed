@@ -5,7 +5,7 @@ import { Hex } from "@aptos-labs/ts-sdk";
 import Link from 'next/link';
 import { WalletConnectButton } from '@/components/WalletConnectButton';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
-import { formatMovementAddress, octasToMove } from '@/lib/movement';
+import { formatMovementAddress, octasToMove, convertToMovementAddress } from '@/lib/movement';
 import { getDisplayName, setDisplayName, getUserTipStats, getAvatar, setAvatar, getUserPostsPaginated, getUserPostsCount, OnChainPost, getGlobalPostsCount, getAllPostsPaginated } from '@/lib/microThreadsClient';
 import { getTipHistory, getStats } from '@/lib/movementClient';
 import TipHistory from '@/components/TipHistory';
@@ -17,15 +17,24 @@ import AuthGuard from '@/components/AuthGuard';
 import UserListModal from '@/components/UserListModal';
 import { CreatePostForm } from '@/components/CreatePostForm';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useNetwork } from '@/contexts/NetworkContext';
 
 export default function CreatorPage() {
     const router = useRouter();
     const { handle } = router.query;
     const { t } = useLanguage();
+    const { currentNetwork } = useNetwork();
     const { account, signAndSubmitTransaction, signMessage } = useWallet();
 
     const address = handle as string;
-    const isOwner = account?.address.toString() === address;
+    
+    // Normalize addresses for consistent comparison (EVM vs Move formats)
+    const normalizedAddress = convertToMovementAddress(address);
+    const normalizedAccountAddress = convertToMovementAddress(account?.address.toString() || "");
+    
+    // Check ownership using normalized addresses
+    const isOwner = normalizedAccountAddress === normalizedAddress && normalizedAddress !== "";
+    
     const currentUserAddress = account?.address.toString() || "";
 
     // Profile Data
@@ -442,15 +451,6 @@ export default function CreatorPage() {
                         {/* LEFT SIDEBAR */}
                         <div className="lg:pr-6 space-y-6">
                             <LeftSidebar activePage="profile" currentUserAddress={currentUserAddress} />
-                            
-                            {isOwner && (
-                                <CreatePostForm onPostCreated={(newPost) => {
-                                    if (newPost) {
-                                        setUserPosts(prev => [newPost, ...prev]);
-                                    }
-                                    // Refresh stats if needed
-                                }} />
-                            )}
                         </div>
 
                         {/* CENTER: Profile Info & Posts */}
@@ -548,7 +548,7 @@ export default function CreatorPage() {
                                                             </button>
                                                             <button
                                                                 onClick={handleSaveProfile}
-                                                                className="px-4 py-2 rounded-xl bg-[var(--accent)] text-[var(--btn-text-primary)] font-bold hover:opacity-90 transition-opacity"
+                                                                className="px-4 py-2 rounded-xl bg-[var(--accent)] text-[var(--btn-text-primary)] font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                                                                 disabled={saving}
                                                             >
                                                                 {saving ? t.saving : t.saveProfile}

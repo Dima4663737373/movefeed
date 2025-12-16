@@ -15,6 +15,7 @@ import { useEffect } from "react";
 import { NotificationsProvider, NotificationButton } from "@/components/Notifications";
 import { ThemeProvider } from "@/components/ThemeSwitcher";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { NetworkProvider } from "@/contexts/NetworkContext";
 import { useTipMonitor } from "@/hooks/useTipMonitor";
 import { BackgroundGradient } from "@/components/BackgroundGradient";
 
@@ -52,22 +53,24 @@ export default function App({ Component, pageProps }: AppProps) {
     }, []);
 
     return (
-        <LanguageProvider>
-            <ThemeProvider>
-                <WalletProvider>
-                    <NotificationsProvider>
-                        <TipMonitor />
-                        <BackgroundGradient />
-                        <Component {...pageProps} />
-                        {/* Fixed notification button - hidden on landing page */}
-                        {!isLandingPage && (
-                            <div className="fixed top-7 right-4 z-[9999]">
-                                <NotificationButton />
-                            </div>
-                        )}
-                    </NotificationsProvider>
-                </WalletProvider>
-            </ThemeProvider>
-        </LanguageProvider>
+        <NetworkProvider>
+            <LanguageProvider>
+                <ThemeProvider>
+                    <WalletProvider>
+                        <NotificationsProvider>
+                            <TipMonitor />
+                            <BackgroundGradient />
+                            <Component {...pageProps} />
+                            {/* Fixed notification button - hidden on landing page */}
+                            {!isLandingPage && (
+                                <div className="fixed top-7 right-4 z-[9999]">
+                                    <NotificationButton />
+                                </div>
+                            )}
+                        </NotificationsProvider>
+                    </WalletProvider>
+                </ThemeProvider>
+            </LanguageProvider>
+        </NetworkProvider>
     );
 }

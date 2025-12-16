@@ -4,6 +4,7 @@ import { OnChainPost, createCommentOnChain } from '@/lib/microThreadsClient';
 import { octasToMove } from '@/lib/movement';
 import PostCard from './PostCard';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useNetwork } from '@/contexts/NetworkContext';
 
 interface CommentSectionProps {
     postId: number;
@@ -15,11 +16,13 @@ interface CommentSectionProps {
 export default function CommentSection({ postId, comments, commentCounts = {}, onCommentAdded }: CommentSectionProps) {
     const { signAndSubmitTransaction, connected, account } = useWallet();
     const { t } = useLanguage();
+    const { currentNetwork } = useNetwork();
     const [content, setContent] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        
         if (!content.trim() || !connected) return;
 
         setIsSubmitting(true);
@@ -57,7 +60,7 @@ export default function CommentSection({ postId, comments, commentCounts = {}, o
                         <button
                             type="submit"
                             disabled={!content.trim() || isSubmitting}
-                            className="bg-[var(--accent)] text-[var(--btn-text-primary)] font-bold px-6 py-2 rounded-full hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                            className="bg-[var(--accent)] text-[var(--btn-text-primary)] font-bold px-6 py-2 rounded-full hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                         >
                             {isSubmitting ? t.posting : t.replyButton}
                         </button>

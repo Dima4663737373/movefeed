@@ -36,6 +36,11 @@ export function useMovementTransaction() {
         setError(null);
 
         try {
+            // Check if module address is configured (Mainnet safety)
+            if (!TIPJAR_MODULE_ADDRESS || TIPJAR_MODULE_ADDRESS.length < 10) {
+                throw new Error("Tipping is not enabled on this network.");
+            }
+
             if (!adapterConnected || !adapterAccount) {
                 throw new Error("Please connect your wallet first.");
             }

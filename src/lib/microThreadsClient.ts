@@ -6,7 +6,7 @@
 
 import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
 import { InputTransactionData } from "@aptos-labs/wallet-adapter-react";
-import { MOVEMENT_TESTNET_RPC, TIPJAR_MODULE_ADDRESS } from "./movement";
+import { getCurrentNetworkConfig, getModuleAddress, convertToMovementAddress } from "./movement";
 
 export interface OnChainPost {
     id: number;
@@ -24,20 +24,18 @@ export interface OnChainPost {
     is_comment: boolean;
 }
 
-const config = new AptosConfig({
-    network: Network.CUSTOM,
-    fullnode: MOVEMENT_TESTNET_RPC,
-});
-const aptos = new Aptos(config);
-
-// Use the deployed contract address
-const MODULE_ADDRESS = TIPJAR_MODULE_ADDRESS;
-const MODULE_NAME = "MoveFeedV3";
-
-// Log the configured address for debugging
-if (typeof window !== 'undefined') {
-    console.log(`[MicroThreads] Using Contract Address: ${MODULE_ADDRESS}`);
+// Helper to get dynamic client based on current network
+function getClient() {
+    const currentConfig = getCurrentNetworkConfig();
+    const config = new AptosConfig({
+        network: Network.CUSTOM,
+        fullnode: currentConfig.rpcUrl,
+        chainId: currentConfig.chainId,
+    });
+    return new Aptos(config);
 }
+
+const MODULE_NAME = "MoveFeedV3";
 
 // Helper to safely extract string from Move String or raw string
 const getString = (val: any): string => {
@@ -56,6 +54,12 @@ const getString = (val: any): string => {
 export async function initializeGlobalFeed(
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
 ): Promise<boolean> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) {
+        console.error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
+        return false;
+    }
+
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::initialize`,
@@ -65,7 +69,8 @@ export async function initializeGlobalFeed(
 
     try {
         const response = await signAndSubmitTransaction(transaction);
-        await aptos.waitForTransaction({ transactionHash: response.hash });
+        const client = getClient();
+        await client.waitForTransaction({ transactionHash: response.hash });
         return true;
     } catch (error) {
         console.error("Error initializing global feed:", error);
@@ -82,6 +87,9 @@ export async function createPostOnChain(
     style: number,
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
 ): Promise<number | null> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
+
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_post`,
@@ -91,7 +99,8 @@ export async function createPostOnChain(
 
     try {
         const response = await signAndSubmitTransaction(transaction);
-        const result = await aptos.waitForTransaction({ transactionHash: response.hash }) as any;
+        const client = getClient();
+        const result = await client.waitForTransaction({ transactionHash: response.hash }) as any;
 
         // Dispatch event for UI refresh
         window.dispatchEvent(new Event('tip_sent'));
@@ -124,6 +133,9 @@ export async function createCommentOnChain(
     imageUrl: string,
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
 ): Promise<void> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
+
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_comment`,
@@ -133,7 +145,8 @@ export async function createCommentOnChain(
 
     try {
         const response = await signAndSubmitTransaction(transaction);
-        await aptos.waitForTransaction({ transactionHash: response.hash });
+        const client = getClient();
+        await client.waitForTransaction({ transactionHash: response.hash });
 
         // Dispatch event for UI refresh
         window.dispatchEvent(new Event('comment_added'));
@@ -150,6 +163,9 @@ export async function deletePostOnChain(
     postId: number,
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
 ): Promise<void> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
+
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::delete_post`,
@@ -159,7 +175,8 @@ export async function deletePostOnChain(
 
     try {
         const response = await signAndSubmitTransaction(transaction);
-        await aptos.waitForTransaction({ transactionHash: response.hash });
+        const client = getClient();
+        await client.waitForTransaction({ transactionHash: response.hash });
     } catch (error) {
         console.error("Error deleting post:", error);
         throw error;
@@ -175,6 +192,9 @@ export async function editPostOnChain(
     imageUrl: string,
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
 ): Promise<void> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
+
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::edit_post_with_image`,
@@ -184,7 +204,8 @@ export async function editPostOnChain(
 
     try {
         const response = await signAndSubmitTransaction(transaction);
-        await aptos.waitForTransaction({ transactionHash: response.hash });
+        const client = getClient();
+        await client.waitForTransaction({ transactionHash: response.hash });
     } catch (error) {
         console.error("Error editing post:", error);
         throw error;
@@ -196,6 +217,9 @@ export async function editPostOnChain(
  * Get a single post by global ID
  */
 export async function getPost(postId: number): Promise<OnChainPost | null> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return null;
+
     try {
         // Try to fetch specific post directly using our new function
         const payload = {
@@ -203,7 +227,8 @@ export async function getPost(postId: number): Promise<OnChainPost | null> {
             functionArguments: [postId.toString()], // Ensure string for u64
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         console.log(`getPost(${postId}) raw result:`, result);
 
         // Handle different return types
@@ -247,13 +272,17 @@ export async function getPost(postId: number): Promise<OnChainPost | null> {
  * Get comments for a specific post
  */
 export async function getCommentsForPost(parentId: number): Promise<OnChainPost[]> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return [];
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_comments_for_post` as `${string}::${string}::${string}`,
             functionArguments: [parentId.toString()], // Ensure string for u64
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         const posts = result[0] as any[];
 
         return posts
@@ -299,13 +328,17 @@ async function retry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promis
  * Get all posts from all users (paginated)
  */
 export async function getAllPostsPaginated(start: number, limit: number): Promise<OnChainPost[]> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return [];
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_posts_paginated` as `${string}::${string}::${string}`,
             functionArguments: [start, limit],
         };
 
-        const result = await retry(() => aptos.view({ payload }));
+        const client = getClient();
+        const result = await retry(() => client.view({ payload }));
         const posts = result[0] as any[];
 
         return posts
@@ -337,13 +370,17 @@ export async function getAllPostsPaginated(start: number, limit: number): Promis
  * Get posts by a specific user (paginated)
  */
 export async function getUserPostsPaginated(userAddress: string, start: number, limit: number): Promise<OnChainPost[]> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return [];
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_user_posts_paginated` as `${string}::${string}::${string}`,
-            functionArguments: [userAddress, start, limit],
+            functionArguments: [convertToMovementAddress(userAddress), start, limit],
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         const posts = result[0] as any[];
 
         return posts
@@ -374,13 +411,17 @@ export async function getUserPostsPaginated(userAddress: string, start: number, 
  * @deprecated Use getAllPostsPaginated instead for scalability
  */
 export async function getAllPosts(): Promise<OnChainPost[]> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return [];
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_posts` as `${string}::${string}::${string}`,
             functionArguments: [],
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         const posts = result[0] as any[];
 
         console.log("Raw posts from chain:", posts);
@@ -413,13 +454,17 @@ export async function getAllPosts(): Promise<OnChainPost[]> {
  * @deprecated Use getUserPostsPaginated instead for scalability
  */
 export async function getUserPosts(userAddress: string): Promise<OnChainPost[]> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return [];
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_user_posts` as `${string}::${string}::${string}`,
-            functionArguments: [userAddress],
+            functionArguments: [convertToMovementAddress(userAddress)],
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         const posts = result[0] as any[];
 
         return posts
@@ -449,13 +494,17 @@ export async function getUserPosts(userAddress: string): Promise<OnChainPost[]> 
  * Get user's post count
  */
 export async function getUserPostsCount(userAddress: string): Promise<number> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return 0;
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_user_posts_count` as `${string}::${string}::${string}`,
-            functionArguments: [userAddress],
+            functionArguments: [convertToMovementAddress(userAddress)],
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         return Number(result[0]);
     } catch (error) {
         console.error("Error fetching user posts count:", error);
@@ -467,13 +516,17 @@ export async function getUserPostsCount(userAddress: string): Promise<number> {
  * Get total global posts count
  */
 export async function getGlobalPostsCount(): Promise<number> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return 0;
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_global_posts_count` as `${string}::${string}::${string}`,
             functionArguments: [],
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         return Number(result[0]);
     } catch (error) {
         console.error("Error fetching global posts count:", error);
@@ -485,13 +538,17 @@ export async function getGlobalPostsCount(): Promise<number> {
  * Get display name for a user
  */
 export async function getDisplayName(userAddress: string): Promise<string> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return "";
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_profile` as `${string}::${string}::${string}`,
-            functionArguments: [userAddress],
+            functionArguments: [convertToMovementAddress(userAddress)],
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         return getString(result[0]); // Use getString to handle potential object wrapper
     } catch (error) {
         console.error("Error fetching display name:", error);
@@ -508,13 +565,19 @@ export async function getUserTipStats(userAddress: string): Promise<{
     totalReceived: number;
     tipsSentCount: number;
 }> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) {
+        return { totalSent: 0, totalReceived: 0, tipsSentCount: 0 };
+    }
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_user_tip_stats` as `${string}::${string}::${string}`,
-            functionArguments: [userAddress],
+            functionArguments: [convertToMovementAddress(userAddress)],
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         const stats = result as [string, string, string];
 
         return {
@@ -535,6 +598,9 @@ export async function setDisplayName(
     displayName: string,
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
 ): Promise<void> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
+
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::update_profile`,
@@ -544,7 +610,8 @@ export async function setDisplayName(
 
     try {
         const response = await signAndSubmitTransaction(transaction);
-        await aptos.waitForTransaction({ transactionHash: response.hash });
+        const client = getClient();
+        await client.waitForTransaction({ transactionHash: response.hash });
     } catch (error) {
         console.error("Error setting display name:", error);
         throw error;
@@ -558,6 +625,9 @@ export async function setAvatar(
     avatarUrl: string,
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
 ): Promise<void> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
+
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::set_avatar`,
@@ -567,7 +637,8 @@ export async function setAvatar(
 
     try {
         const response = await signAndSubmitTransaction(transaction);
-        await aptos.waitForTransaction({ transactionHash: response.hash });
+        const client = getClient();
+        await client.waitForTransaction({ transactionHash: response.hash });
     } catch (error) {
         console.error("Error setting avatar:", error);
         throw error;
@@ -578,13 +649,19 @@ export async function setAvatar(
  * Get user avatar URL
  */
 export async function getAvatar(userAddress: string): Promise<string> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) {
+        return `https://api.dicebear.com/7.x/identicon/svg?seed=${userAddress}`;
+    }
+
     try {
         const payload = {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_avatar` as `${string}::${string}::${string}`,
-            functionArguments: [userAddress],
+            functionArguments: [convertToMovementAddress(userAddress)],
         };
 
-        const result = await aptos.view({ payload });
+        const client = getClient();
+        const result = await client.view({ payload });
         const avatarUrl = getString(result[0]);
 
         if (avatarUrl) {

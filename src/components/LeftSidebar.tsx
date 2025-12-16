@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useState } from 'react';
+import ComposeModal from './ComposeModal';
 
 interface LeftSidebarProps {
     activePage: 'home' | 'explore' | 'chat' | 'bookmarks' | 'profile' | 'settings';
@@ -12,6 +14,7 @@ interface LeftSidebarProps {
 export default function LeftSidebar({ activePage, currentUserAddress, displayName, avatar }: LeftSidebarProps) {
     const router = useRouter();
     const { t } = useLanguage();
+    const [isComposeOpen, setIsComposeOpen] = useState(false);
 
     const navItems = [
         {
@@ -92,6 +95,15 @@ export default function LeftSidebar({ activePage, currentUserAddress, displayNam
                 );
             })}
 
+            {/* Post Button */}
+            <button
+                onClick={() => setIsComposeOpen(true)}
+                className="mt-4 bg-yellow-400 text-black font-bold text-lg rounded-full py-3 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 hover:bg-yellow-500 transition-all w-full flex items-center justify-center gap-2"
+            >
+                <span className="hidden xl:inline">Post</span>
+                <svg className="w-6 h-6 xl:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            </button>
+
             {/* Profile Button with Avatar */}
             <Link
                 href={`/u/${currentUserAddress}`}
@@ -112,6 +124,15 @@ export default function LeftSidebar({ activePage, currentUserAddress, displayNam
                     <span className="text-sm text-[var(--text-secondary)]">@{currentUserAddress ? currentUserAddress.slice(0, 6) : '...'}...</span>
                 </div>
             </Link>
+
+            <ComposeModal 
+                isOpen={isComposeOpen} 
+                onClose={() => setIsComposeOpen(false)}
+                onPostCreated={() => {
+                    // Dispatch event for feed refresh
+                    window.dispatchEvent(new Event('tip_sent'));
+                }}
+            />
         </aside>
     );
 }
