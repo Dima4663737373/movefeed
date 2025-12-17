@@ -298,18 +298,19 @@ export default function FeedPage() {
                                         {[...optimisticPosts, ...globalPosts]
                                             // Filter out comments from the main feed
                                             .filter(post => !post.is_comment)
-                                            // Deduplicate based on global_id if available, otherwise fallback to id
+                                            // Deduplicate based on global_id if available, otherwise fallback to id + creator
                                             .filter((post, index, self) => 
                                                 index === self.findIndex((p) => {
                                                     if (p.global_id !== undefined && post.global_id !== undefined) {
                                                         return p.global_id === post.global_id;
                                                     }
-                                                    return p.id === post.id;
+                                                    // If global_id is missing, we must check creator + id to be unique
+                                                    return p.id === post.id && p.creator === post.creator;
                                                 })
                                             )
                                             .map(post => (
                                             <PostCard
-                                                key={post.global_id || post.id}
+                                                key={post.global_id !== undefined ? post.global_id : `${post.creator}-${post.id}`}
                                                 post={{
                                                     id: post.id.toString(),
                                                     global_id: post.global_id,

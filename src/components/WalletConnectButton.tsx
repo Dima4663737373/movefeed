@@ -61,7 +61,8 @@ export function WalletConnectButton() {
             }
 
             if (currentNetwork === 'mainnet') {
-                return name.includes('mainnet') || name.includes('movement');
+                if (name.includes('aptos')) return false; // Explicitly exclude Aptos
+                return name.includes('movement') || (name.includes('mainnet') && !name.includes('aptos'));
             }
         }
 

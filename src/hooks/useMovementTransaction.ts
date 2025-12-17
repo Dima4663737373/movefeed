@@ -6,9 +6,9 @@
  */
 
 import { useState } from "react";
-import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { useWallet, InputTransactionData } from "@aptos-labs/wallet-adapter-react";
 import { getAptosClient, getGasEstimation } from "@/lib/movementClient";
-import { TIPJAR_MODULE_ADDRESS } from "@/lib/movement";
+import { getModuleAddress } from "@/lib/movement";
 
 interface TransactionResult {
     hash: string;
@@ -30,14 +30,16 @@ export function useMovementTransaction() {
      */
     const sendTip = async (
         recipient: string,
-        amount: number
+        amount: number,
+        postId: string
     ): Promise<TransactionResult> => {
         setLoading(true);
         setError(null);
 
         try {
+            const moduleAddress = getModuleAddress();
             // Check if module address is configured (Mainnet safety)
-            if (!TIPJAR_MODULE_ADDRESS || TIPJAR_MODULE_ADDRESS.length < 10) {
+            if (!moduleAddress || moduleAddress.length < 10) {
                 throw new Error("Tipping is not enabled on this network.");
             }
 
@@ -52,17 +54,23 @@ export function useMovementTransaction() {
             const gasEstimation = await getGasEstimation();
             console.log("⛽ Gas estimation:", gasEstimation);
 
-            const response = await adapterSignAndSubmit({
+            // Use standard coin transfer for direct tips
+            // 0x1::coin::transfer<0x1::aptos_coin::AptosCoin>(recipient, amount)
+            const amountInOctas = Math.floor(amount * 100_000_000);
+            
+            // Use the smart contract for tipping to ensure stats are updated
+            // public entry fun tip_post(account: &signer, creator: address, post_id: u64, amount: u64)
+            const payload: InputTransactionData = {
                 data: {
-                    function: `${TIPJAR_MODULE_ADDRESS}::TipJar::send_tip`,
+                    function: `${moduleAddress}::MoveFeedV3::tip_post`,
                     typeArguments: [],
-                    functionArguments: [recipient, amount.toString()] // Pass amount as string
-                },
-                options: {
-                    maxGasAmount: gasEstimation.maxGasAmount,
-                    gasUnitPrice: gasEstimation.gasUnitPrice,
+                    functionArguments: [recipient, postId, amountInOctas.toString()]
                 }
-            });
+            };
+
+            console.log("💸 Sending Tip via Contract:", payload);
+
+            const response = await adapterSignAndSubmit(payload);
 
             console.log("✅ Transaction submitted:", response.hash);
 

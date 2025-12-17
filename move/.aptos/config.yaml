@@ -6,6 +6,12 @@ profiles:
     public_key: ed25519-pub-0x35f8671510317d420ab5f1dd35f509a5f5164da1b2b479f563699f149d67df29
     account: 7e218b2d60d7415e97d11aa67841f2b93948b78060eedb102fb0bf118efad0e4
     rest_url: "https://testnet.movementnetwork.xyz/v1"
+  movement-mainnet:
+    network: Custom
+    private_key: ed25519-priv-0xf17a351a44abc767e81908339b89bdaef46f21e8cfa91cb70963d73c7156e841
+    public_key: ed25519-pub-0xb59750d4ce30d76bc52dadd5577dbb1667c3be83b6c797be2a447325acca6782
+    account: 9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204
+    rest_url: "https://mainnet.movementnetwork.xyz/v1"
   movement-new:
     network: Custom
     private_key: ed25519-priv-0xf79c0b1632ab7677a2567018b7570e1e3876bc5baaf9fbea304c4c634aa85733

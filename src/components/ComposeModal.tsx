@@ -36,7 +36,7 @@ interface Draft {
 export default function ComposeModal({ isOpen, onClose, onPostCreated }: ComposeModalProps) {
     const { t } = useLanguage();
     const { currentNetwork } = useNetwork();
-    const { connected, signAndSubmitTransaction, account } = useWallet();
+    const { connected, signAndSubmitTransaction, account, network } = useWallet();
     const [content, setContent] = useState('');
     const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
     const [creating, setCreating] = useState(false);
@@ -223,6 +223,13 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
 
         if (!connected) {
             setError(t.pleaseConnectWallet);
+            return;
+        }
+
+        // Strict Network Check
+        const requiredChainId = currentNetwork === 'testnet' ? '250' : '126';
+        if (network?.chainId?.toString() !== requiredChainId) {
+            setError(`Wrong network! Please switch your wallet to Movement ${currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'} (Chain ID: ${requiredChainId}). Currently on: ${network?.chainId || 'Unknown'}`);
             return;
         }
 

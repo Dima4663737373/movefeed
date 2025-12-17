@@ -8,6 +8,7 @@ interface Translations {
     explore: string;
     chat: string;
     bookmarks: string;
+    bookmark: string;
     settings: string;
     profile: string;
     post: string;
@@ -77,10 +78,12 @@ interface Translations {
     writeReply: string;
     quoteRepost: string;
     whatsHappeningPlaceholder: string;
+    whatsOnYourMind: string;
     mediaLimitError: string;
     imageTooLargeError: string;
     postCreatedSuccess: string;
     postCreationError: string;
+    errorCreatingPost: string;
     postButton: string;
     replyButton: string;
     photo: string;
@@ -216,6 +219,7 @@ const translations: Record<Language, Translations> = {
         explore: 'Explore',
         chat: 'Chat',
         bookmarks: 'Bookmarks',
+        bookmark: 'Bookmark',
         settings: 'Settings',
         profile: 'Profile',
         post: 'Post',
@@ -278,13 +282,15 @@ const translations: Record<Language, Translations> = {
 
         createPostTitle: 'Create a Post',
         leaveComment: 'Leave a Comment',
-        writeReply: 'Write your reply...',
+        writeReply: 'Tweet your reply',
         quoteRepost: 'Quote Repost',
-        whatsHappeningPlaceholder: "What's happening?",
+        whatsHappeningPlaceholder: 'What is happening?!',
+        whatsOnYourMind: 'What is happening?!',
         mediaLimitError: 'Maximum 4 media items allowed',
         imageTooLargeError: 'Image too large (max 10MB before compression)',
-        postCreatedSuccess: 'Post created!',
+        postCreatedSuccess: 'Post created successfully!',
         postCreationError: 'Failed to create post. Please try again.',
+        errorCreatingPost: 'Failed to create post',
         postButton: 'Post',
         replyButton: 'Reply',
         photo: 'Photo',
@@ -410,7 +416,8 @@ const translations: Record<Language, Translations> = {
         feed: 'Стрічка',
         explore: 'Огляд',
         chat: 'Чат',
-        bookmarks: 'Збережені',
+        bookmarks: 'Закладки',
+        bookmark: 'В закладки',
         settings: 'Налаштування',
         profile: 'Профіль',
         post: 'Опублікувати',
@@ -473,13 +480,15 @@ const translations: Record<Language, Translations> = {
 
         createPostTitle: 'Створити пост',
         leaveComment: 'Залишити коментар',
-        writeReply: 'Напишіть вашу відповідь...',
-        quoteRepost: 'Цитувати пост',
-        whatsHappeningPlaceholder: 'Що відбувається?',
+        writeReply: 'Напишіть вашу відповідь',
+        quoteRepost: 'Цитувати',
+        whatsHappeningPlaceholder: 'Що відбувається?!',
+        whatsOnYourMind: 'Що відбувається?!',
         mediaLimitError: 'Максимум 4 медіа файли',
         imageTooLargeError: 'Зображення занадто велике (макс 10MB)',
-        postCreatedSuccess: 'Пост створено!',
+        postCreatedSuccess: 'Пост створено успішно!',
         postCreationError: 'Не вдалося створити пост. Спробуйте ще раз.',
+        errorCreatingPost: 'Не вдалося створити пост',
         postButton: 'Опублікувати',
         replyButton: 'Відповісти',
         photo: 'Фото',

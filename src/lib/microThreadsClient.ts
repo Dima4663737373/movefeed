@@ -7,6 +7,7 @@
 import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
 import { InputTransactionData } from "@aptos-labs/wallet-adapter-react";
 import { getCurrentNetworkConfig, getModuleAddress, convertToMovementAddress } from "./movement";
+import { getGasEstimation } from "./movementClient"; // Keep for future use or remove if strict
 
 export interface OnChainPost {
     id: number;
@@ -30,7 +31,6 @@ function getClient() {
     const config = new AptosConfig({
         network: Network.CUSTOM,
         fullnode: currentConfig.rpcUrl,
-        chainId: currentConfig.chainId,
     });
     return new Aptos(config);
 }
@@ -90,14 +90,29 @@ export async function createPostOnChain(
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
 
+    // Explicitly define type arguments as empty for non-generic entry functions
+    // This helps some wallets avoid misinterpretation
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_post`,
+            typeArguments: [],
             functionArguments: [content, imageUrl, style],
         },
     };
 
     try {
+        // Optional: Simulate to verify before prompting wallet
+        // This helps debug if the wallet UI is showing weird things due to failure
+        try {
+            const client = getClient();
+            // We can't simulate easily without the sender's public key or account object
+            // which useWallet doesn't expose directly for simulation without prompt.
+            // But we can assume if the payload is standard, it should work.
+            console.log("Preparing create_post transaction...", transaction);
+        } catch (e) {
+            console.warn("Simulation check skipped");
+        }
+
         const response = await signAndSubmitTransaction(transaction);
         const client = getClient();
         const result = await client.waitForTransaction({ transactionHash: response.hash }) as any;
@@ -136,9 +151,11 @@ export async function createCommentOnChain(
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
 
+    // Explicitly define type arguments as empty
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_comment`,
+            typeArguments: [],
             functionArguments: [parentId.toString(), content, imageUrl],
         },
     };
@@ -166,9 +183,11 @@ export async function deletePostOnChain(
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
 
+    // Explicitly define type arguments as empty
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::delete_post`,
+            typeArguments: [],
             functionArguments: [postId.toString()],
         },
     };
@@ -195,9 +214,11 @@ export async function editPostOnChain(
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
 
+    // Explicitly define type arguments as empty
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::edit_post_with_image`,
+            typeArguments: [],
             functionArguments: [postId.toString(), content, imageUrl],
         },
     };

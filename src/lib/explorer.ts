@@ -39,7 +39,7 @@ export function getExplorerLink(
         // AptosScan network param might be different
         // Assuming custom network or similar
         const aptosNetworkParam = storedNetwork === 'mainnet' 
-             ? '?network=custom&rpc=https://full.mainnet.movementinfra.xyz/v1' // Example
+             ? '?network=custom&rpc=https://mainnet.movementnetwork.xyz/v1' 
              : '?network=custom&rpc=https://testnet.movementnetwork.xyz/v1';
 
         switch (type) {

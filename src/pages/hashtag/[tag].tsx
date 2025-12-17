@@ -159,7 +159,7 @@ export default function HashtagPage() {
                         ) : posts.length > 0 ? (
                             posts.map((post) => (
                                 <PostCard 
-                                    key={post.id} 
+                                    key={post.global_id !== undefined ? post.global_id : `${post.creator}-${post.id}`}
                                     post={{
                                         ...post,
                                         id: post.id.toString(),

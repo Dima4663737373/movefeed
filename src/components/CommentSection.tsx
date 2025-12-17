@@ -14,7 +14,7 @@ interface CommentSectionProps {
 }
 
 export default function CommentSection({ postId, comments, commentCounts = {}, onCommentAdded }: CommentSectionProps) {
-    const { signAndSubmitTransaction, connected, account } = useWallet();
+    const { signAndSubmitTransaction, connected, account, network } = useWallet();
     const { t } = useLanguage();
     const { currentNetwork } = useNetwork();
     const [content, setContent] = useState('');
@@ -24,6 +24,13 @@ export default function CommentSection({ postId, comments, commentCounts = {}, o
         e.preventDefault();
         
         if (!content.trim() || !connected) return;
+
+        // Strict Network Check
+        const requiredChainId = currentNetwork === 'testnet' ? '250' : '126';
+        if (network?.chainId?.toString() !== requiredChainId) {
+            alert(`Wrong network! Please switch your wallet to Movement ${currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'} (Chain ID: ${requiredChainId}). Currently on: ${network?.chainId || 'Unknown'}`);
+            return;
+        }
 
         setIsSubmitting(true);
         try {

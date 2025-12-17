@@ -18,7 +18,6 @@ export function getAptosClient(configOverride?: NetworkConfig): Aptos {
     network: Network.CUSTOM,
     fullnode: currentConfig.rpcUrl,
     indexer: currentConfig.indexerUrl,
-    chainId: currentConfig.chainId,
   });
 
   return new Aptos(config);

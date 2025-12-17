@@ -21,14 +21,10 @@ export function NetworkWarning() {
             return;
         }
 
-        const isWalletMainnet = (network.name && network.name.toLowerCase().includes('mainnet')) || network.chainId === '126' || network.chainId === '3073';
-        // Simple check for testnet-like keywords or IDs
-        const isWalletTestnet = (network.name && (network.name.toLowerCase().includes('testnet') || network.name.toLowerCase().includes('bardock'))) || 
-                                ['250', '177', '27'].includes(network.chainId?.toString() || '');
+        const chainId = network.chainId?.toString();
+        const requiredChainId = currentNetwork === 'testnet' ? '250' : '126';
 
-        if (currentNetwork === 'testnet' && isWalletMainnet) {
-            setShowWarning(true);
-        } else if (currentNetwork === 'mainnet' && isWalletTestnet) {
+        if (chainId !== requiredChainId) {
             setShowWarning(true);
         } else {
             setShowWarning(false);
@@ -37,8 +33,8 @@ export function NetworkWarning() {
 
     if (!showWarning) return null;
 
-    const requiredNetwork = currentNetwork === 'testnet' ? 'Movement Bardock Testnet' : 'Movement Mainnet';
-    const wrongNetwork = currentNetwork === 'testnet' ? 'Mainnet' : 'Testnet';
+    const requiredNetwork = currentNetwork === 'testnet' ? 'Movement Bardock Testnet (Chain ID: 250)' : 'Movement Mainnet (Chain ID: 126)';
+    const currentWalletNetwork = network?.name || `Chain ID: ${network?.chainId}`;
 
     return (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 max-w-2xl w-full mx-4">
@@ -52,7 +48,7 @@ export function NetworkWarning() {
                     <div className="flex-1">
                         <h3 className="text-lg font-bold text-red-500 mb-2">⚠️ Wrong Network Detected!</h3>
                         <p className="text-white mb-3">
-                            Your wallet is connected to <strong>{wrongNetwork}</strong>, but this app is in <strong>{currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'}</strong> mode.
+                            Your wallet is connected to <strong>{currentWalletNetwork}</strong>, but this app is in <strong>{currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'}</strong> mode.
                         </p>
                         <div className="bg-black/30 rounded p-3 mb-3">
                             <p className="text-sm text-white/90 mb-2"><strong>To fix:</strong></p>

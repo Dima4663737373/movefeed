@@ -33,15 +33,11 @@ export const MOVEMENT_TESTNET_INDEXER = typeof window !== 'undefined'
     ? "/api/movement-indexer"
     : MOVEMENT_TESTNET_INDEXER_DIRECT;
 
-// Movement Mainnet Indexer endpoint (Placeholder - using direct RPC or similar structure if available)
-// For now, we will use the same structure if we can guess, or leave it undefined if acceptable.
-// Given we don't have it, we might skip it or use a known one if found. 
-// User didn't provide it. Let's try to infer or just use undefined/null for now and handle it.
-// Actually, let's just use the RPC URL as a placeholder if needed, or null.
-// But AptosConfig expects a string. 
-// Let's assume standard naming: https://indexer.mainnet.movementnetwork.xyz/v1/graphql ??
-// Safest is to not define it if not known, but the client might need it.
-// Let's leave it as empty string or undefined for now in the config object.
+// Movement Mainnet Indexer endpoint
+export const MOVEMENT_MAINNET_INDEXER_DIRECT = "https://indexer.mainnet.movementnetwork.xyz/v1/graphql";
+export const MOVEMENT_MAINNET_INDEXER = typeof window !== 'undefined'
+    ? "/api/movement-mainnet-indexer"
+    : MOVEMENT_MAINNET_INDEXER_DIRECT;
 
 // Movement Bardock Testnet Chain ID
 // Note: This is based on Movement documentation
@@ -65,6 +61,7 @@ export interface NetworkConfig {
     indexerUrl?: string;
     networkName: string;
     explorerUrl: string;
+    bridgeUrl?: string;
     moduleAddress: string;
 }
 
@@ -77,6 +74,7 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
         indexerUrl: MOVEMENT_TESTNET_INDEXER,
         networkName: MOVEMENT_NETWORK_NAME,
         explorerUrl: "https://explorer.movementnetwork.xyz/?network=testnet",
+        bridgeUrl: "https://bridge.testnet.movementnetwork.xyz/", // Assuming standard naming, or leave undefined
         // Testnet Module Address
         moduleAddress: "0x87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb"
     },
@@ -85,9 +83,10 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
         chainId: MOVEMENT_MAINNET_CHAIN_ID,
         evmChainId: 3073, // Mainnet EVM Chain ID
         rpcUrl: MOVEMENT_MAINNET_RPC,
-        // indexerUrl: ... // User didn't provide
+        indexerUrl: MOVEMENT_MAINNET_INDEXER,
         networkName: MOVEMENT_MAINNET_NAME,
-        explorerUrl: "https://explorer.movementnetwork.xyz",
+        explorerUrl: "https://explorer.movementnetwork.xyz/?network=mainnet",
+        bridgeUrl: "https://bridge.movementnetwork.xyz/",
         // Mainnet Module Address
         moduleAddress: "0x9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204"
     }

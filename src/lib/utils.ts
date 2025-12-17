@@ -67,11 +67,11 @@ export function formatPostTime(timestamp: number, isDetailed: boolean = false): 
     const postYear = date.getFullYear();
 
     if (postYear === currentYear) {
-        // "14 Dec"
-        return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+        // "Dec 14"
+        return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
     } else {
-        // "14 Dec 2024"
-        return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+        // "Dec 14, 2024"
+        return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
     }
 }
 
@@ -81,8 +81,8 @@ export function formatPostTime(timestamp: number, isDetailed: boolean = false): 
  */
 export function formatPostStatsDate(timestamp: number): string {
     const date = new Date(timestamp);
-    const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     
     return `${timeStr} · ${dateStr}`;
 }

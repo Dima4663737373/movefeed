@@ -12,7 +12,7 @@ import { formatMovementAddress, octasToMove } from '@/lib/movement';
 import { formatRelativeTime, formatPostTime, formatPostStatsDate } from '@/lib/utils';
 import { getDisplayName, getAvatar, deletePostOnChain, editPostOnChain, getPost, getCommentsForPost, OnChainPost, createPostOnChain } from '@/lib/microThreadsClient';
 import { saveLocalTransaction } from '@/lib/movementClient';
-import { sendTipToPost } from '@/lib/movementTx';
+import { useMovementTransaction } from '@/hooks/useMovementTransaction';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useNotifications } from '@/components/Notifications';
@@ -54,6 +54,7 @@ interface PostCardProps {
 export default function PostCard({ post, isOwner, showTipButton = true, initialIsBookmarked = false, hideComments = false, compact = false }: PostCardProps) {
     const router = useRouter();
     const { account, signAndSubmitTransaction, signMessage, network } = useWallet();
+    const { sendTip } = useMovementTransaction();
     const { t } = useLanguage();
     const { currentNetwork } = useNetwork();
     const { addNotification } = useNotifications();
@@ -578,13 +579,12 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
             return;
         }
 
-        if (network && network.name) {
-            const name = network.name.toLowerCase();
-            if (name.includes('mainnet')) {
-                console.error("Wrong network:", network.name);
-                addNotification("Please switch to Movement Bardock Testnet", "error", { persist: false });
-                return;
-            }
+        // Strict Network Check
+        const requiredChainId = currentNetwork === 'testnet' ? '250' : '126';
+        if (network?.chainId?.toString() !== requiredChainId) {
+            console.error("Wrong network:", network?.chainId);
+            alert(`Wrong network! Please switch your wallet to Movement ${currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'} (Chain ID: ${requiredChainId}). Currently on: ${network?.chainId || 'Unknown'}`);
+            return;
         }
 
         console.log("Account connected:", account.address);
@@ -614,9 +614,11 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                 return;
             }
 
-            console.log("Calling sendTipToPost...");
-            const txHash = await sendTipToPost(params, signAndSubmitTransaction);
-            console.log("sendTipToPost returned hash:", txHash);
+            console.log("Calling sendTip...");
+            // Use smart contract for tipping
+            const result = await sendTip(params.creatorAddress, params.amount, post.id);
+            const txHash = result.hash;
+            console.log("sendTip returned hash:", txHash);
 
             // Save to local storage for immediate UI update
             if (account?.address) {
@@ -1048,7 +1050,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                             {/* Reply Button */}
                             <button 
                                 onClick={() => setShowReplyForm(!showReplyForm)}
-                                className="group flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-sky-500 transition-colors -ml-2"
+                                className="group flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-sky-500 transition-colors"
                                 title={t.replyButton}
                             >
                                 <div className="p-2 rounded-full group-hover:bg-sky-500/10 transition-all group-hover:scale-110">
@@ -1178,13 +1180,13 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                             </div>
 
                             {/* Vote Buttons (Compact Pill) */}
-                            <div className="flex items-center bg-[var(--card-border)]/30 rounded-full h-8 border border-transparent hover:border-[var(--card-border)] transition-colors">
+                            <div className="flex items-center bg-[var(--card-border)]/30 rounded-full h-9 border border-transparent hover:border-[var(--card-border)] transition-colors">
                                 <button
                                     onClick={(e) => handleVote(e, 'up')}
                                     disabled={voting}
                                     className={`pl-2 pr-1.5 h-full flex items-center hover:text-green-500 transition-colors ${userVote === 'up' ? 'text-green-500' : 'text-[var(--text-secondary)]'}`}
                                 >
-                                    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                    <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
                                     </svg>
                                 </button>
@@ -1197,7 +1199,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                     disabled={voting}
                                     className={`pl-1.5 pr-1.5 h-full flex items-center hover:text-red-500 transition-colors ${userVote === 'down' ? 'text-red-500' : 'text-[var(--text-secondary)]'}`}
                                 >
-                                    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                    <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                                     </svg>
                                 </button>

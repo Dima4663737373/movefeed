@@ -47,6 +47,8 @@ export async function buildTipPostPayload(
     // Convert amount to octas (8 decimals)
     const amountInOctas = moveToOctas(amount);
 
+    console.log(`🔢 Converting amount: ${amount} MOVE -> ${amountInOctas} octas`);
+
     const payload: any = {
         data: {
             function: `${TIPJAR_MODULE_ADDRESS}::MoveFeedV3::tip_post`,
@@ -106,8 +108,16 @@ export async function sendTipToPost(
         console.log('🎉 Transaction confirmed!');
 
         return response.hash;
-    } catch (error) {
+    } catch (error: any) {
         console.error('❌ Failed to send tip:', error);
+
+        // Check for specific network error related to movementinfra.xyz or DNS
+        if (error?.message?.includes('Failed to fetch') || error?.toString().includes('Failed to fetch')) {
+             if (typeof window !== 'undefined') {
+                 alert(`Network Error: It seems your wallet is trying to connect to an old or invalid node URL.\n\nPlease check your Wallet Settings -> Network -> Movement Mainnet.\n\nEnsure RPC URL is: https://mainnet.movementnetwork.xyz/v1\n(NOT movementinfra.xyz)`);
+             }
+        }
+
         throw error;
     }
 }
