@@ -66,8 +66,9 @@ export default function TipSender({ address, balance, minBalance, onSuccess }: T
         setTxHash(null);
 
         try {
-            const amountOctas = moveToOctas(parseFloat(tipAmount));
-            const result = await sendTip(recipientAddress, amountOctas);
+            // Use dummy post ID "0" for direct tips/testing
+            // sendTip handles octas conversion internally
+            const result = await sendTip(recipientAddress, parseFloat(tipAmount), "0");
             setTxHash(result.hash);
             setTxStatus('confirmed');
 
