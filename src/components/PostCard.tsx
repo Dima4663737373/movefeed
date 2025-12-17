@@ -777,7 +777,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         // Don't navigate if we're editing
         if (isEditing) return;
 
-        router.push(`/post/${post.id}`);
+        router.push(`/${post.creatorAddress}/status/${post.id}`);
     };
 
     return (
@@ -794,7 +794,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                         </svg>
                         <span className="hover:underline cursor-pointer" onClick={(e) => {
                             e.stopPropagation();
-                            router.push(`/u/${post.creatorAddress}`);
+                            router.push(`/${post.creatorAddress}`);
                         }}>
                             {displayName || formatMovementAddress(post.creatorAddress)}
                         </span> 
@@ -806,7 +806,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                 <div className="flex gap-3">
                     {/* Avatar Column */}
                     <div className="flex-shrink-0">
-                        <Link href={`/u/${post.creatorAddress}`} onClick={(e) => e.stopPropagation()}>
+                        <Link href={`/${post.creatorAddress}`} onClick={(e) => e.stopPropagation()}>
                             <div className="w-10 h-10 rounded-full bg-[var(--card-border)] overflow-hidden">
                                 {avatarUrl ? (
                                     <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
@@ -824,7 +824,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                         {/* Header Row */}
                         <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-2 overflow-hidden">
-                                <Link href={`/u/${post.creatorAddress}`} className="font-bold text-[var(--text-primary)] hover:underline truncate" onClick={(e) => e.stopPropagation()}>
+                                <Link href={`/${post.creatorAddress}`} className="font-bold text-[var(--text-primary)] hover:underline truncate" onClick={(e) => e.stopPropagation()}>
                                     {displayName || formatMovementAddress(post.creatorAddress)}
                                 </Link>
                                 <span className="text-[var(--text-secondary)] text-sm truncate">
@@ -832,7 +832,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                 </span>
                                 <span className="text-[var(--text-secondary)] text-sm">·</span>
                                 <span className="text-[var(--text-secondary)] text-sm whitespace-nowrap" title={new Date(post.createdAt).toLocaleString()}>
-                                    {formatPostTime(post.createdAt, router.pathname.startsWith('/post/'))}
+                                    {formatPostTime(post.createdAt, router.pathname.includes('/status/'))}
                                 </span>
                                 {post.updatedAt && post.updatedAt > post.createdAt + 1000 && (
                                     <span 
@@ -963,7 +963,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         className="mt-3 p-3 border border-[var(--card-border)] rounded-xl bg-[var(--hover-bg)] cursor-pointer hover:bg-[var(--card-border)] transition-colors"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            router.push(`/post/${repostedPost.id}`);
+                                            router.push(`/${repostedPost.creator}/status/${repostedPost.id}`);
                                         }}
                                     >
                                         <div className="flex items-center gap-2 mb-2">
@@ -1294,7 +1294,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         className="text-[13px] text-[var(--accent)] hover:underline w-full text-left mt-2"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            router.push(`/post/${post.id}`);
+                                            router.push(`/${post.creatorAddress}/status/${post.id}`);
                                         }}
                                     >
                                         {t.viewAllComments} ({comments.length})

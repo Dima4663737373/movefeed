@@ -13,7 +13,6 @@ import PostCard from '@/components/PostCard';
 import Head from 'next/head';
 import LeftSidebar from '@/components/LeftSidebar';
 import RightSidebar from '@/components/RightSidebar';
-import AuthGuard from '@/components/AuthGuard';
 import UserListModal from '@/components/UserListModal';
 import { CreatePostForm } from '@/components/CreatePostForm';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -420,7 +419,7 @@ export default function CreatorPage() {
     }
 
     return (
-        <AuthGuard>
+        <>
             <Head>
                 <title>{displayName || formatMovementAddress(address)} - MoveFeed</title>
             </Head>
@@ -802,6 +801,6 @@ export default function CreatorPage() {
                 users={followingList}
                 currentUserAddress={currentUserAddress}
             />
-        </AuthGuard>
+        </>
     );
 }

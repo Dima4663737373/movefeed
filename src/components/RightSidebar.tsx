@@ -59,7 +59,7 @@ export default function RightSidebar({ posts, stats, currentUserAddress, profile
                     {stats.topTipper !== "None" && (
                         <div className="pt-3 border-t border-[var(--card-border)]">
                             <span className="text-[var(--text-secondary)] text-sm block mb-1">{t.topTipper}</span>
-                            <Link href={`/u/${stats.topTipper}`} className="font-mono font-bold text-[var(--accent)] hover:underline truncate block">
+                            <Link href={`/${stats.topTipper}`} className="font-mono font-bold text-[var(--accent)] hover:underline truncate block">
                                 {formatMovementAddress(stats.topTipper)}
                             </Link>
                         </div>

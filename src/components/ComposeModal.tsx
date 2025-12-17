@@ -238,8 +238,8 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
             return;
         }
 
-        if (content.length > 1000) {
-            setError(t.contentTooLong);
+        if (content.length > 400) {
+            setError(t.contentTooLong || "Content too long (max 400 chars)");
             return;
         }
 
@@ -439,6 +439,20 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
                                     ref={textareaRef}
                                     value={content}
                                     onChange={(e) => setContent(e.target.value)}
+                                    onPaste={(e) => {
+                                        const items = e.clipboardData.items;
+                                        const files: File[] = [];
+                                        for (let i = 0; i < items.length; i++) {
+                                            if (items[i].type.indexOf('image') !== -1) {
+                                                const blob = items[i].getAsFile();
+                                                if (blob) files.push(blob);
+                                            }
+                                        }
+                                        if (files.length > 0) {
+                                            e.preventDefault();
+                                            processFiles(files);
+                                        }
+                                    }}
                                     placeholder={t.whatsOnYourMind || "What is happening?!"}
                                     className="w-full bg-transparent text-[var(--text-primary)] text-xl placeholder-[var(--text-secondary)] resize-none outline-none min-h-[100px]"
                                 />

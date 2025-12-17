@@ -200,7 +200,7 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
                                                     <span className="text-xs text-neutral-500 mb-1">{label}</span>
                                                     {isAddress ? (
                                                         <Link
-                                                            href={`/u/${otherParty}`}
+                                                            href={`/${otherParty}`}
                                                             className="text-yellow-400 hover:underline hover:text-yellow-300 transition-colors"
                                                         >
                                                             {formatMovementAddress(otherParty || "")}

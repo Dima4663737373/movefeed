@@ -58,7 +58,7 @@ export default function UserSuggestion({ creator, currentUserAddress, profile }:
 
     return (
         <div className="flex items-center justify-between">
-            <Link href={`/u/${creator}`} className="flex items-center gap-3 group min-w-0">
+            <Link href={`/${creator}`} className="flex items-center gap-3 group min-w-0">
                 <div className="w-10 h-10 rounded-full bg-neutral-800 flex-shrink-0 overflow-hidden border border-[var(--card-border)]">
                     {profile.avatar ? (
                         <img src={profile.avatar} alt={creator} className="w-full h-full object-cover" />

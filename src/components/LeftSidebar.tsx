@@ -106,7 +106,7 @@ export default function LeftSidebar({ activePage, currentUserAddress, displayNam
 
             {/* Profile Button with Avatar */}
             <Link
-                href={`/u/${currentUserAddress}`}
+                href={`/${currentUserAddress}`}
                 className={`flex items-center gap-4 px-4 py-3 rounded-full transition-colors duration-200 mt-4 ${activePage === 'profile'
                     ? 'font-bold bg-[var(--card-border)]'
                     : 'hover:bg-[var(--hover-bg)]'

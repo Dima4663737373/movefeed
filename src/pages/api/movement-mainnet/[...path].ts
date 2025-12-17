@@ -129,7 +129,7 @@ export default async function handler(
 
     // Forward the request to Movement Network RPC
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
 
     const headers: Record<string, string> = {
       'Accept': req.headers.accept || 'application/json',
@@ -206,10 +206,19 @@ export default async function handler(
   } catch (error: any) {
     console.error('[RPC Proxy Mainnet Error]', error);
     if (!res.headersSent) {
-      res.status(500).json({
-        error: 'Failed to proxy request',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      });
+      const isTimeout = error.name === 'AbortError' || error.message === 'This operation was aborted';
+      
+      if (isTimeout) {
+        res.status(504).json({
+          error: 'Gateway Timeout',
+          message: 'Upstream RPC request timed out after 60 seconds'
+        });
+      } else {
+        res.status(500).json({
+          error: 'Failed to proxy request',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     }
   }
 }

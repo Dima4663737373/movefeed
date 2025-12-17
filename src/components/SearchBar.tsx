@@ -105,7 +105,7 @@ export function SearchBar({ posts, profiles }: SearchBarProps) {
                                 <button
                                     key={user.address}
                                     onClick={() => {
-                                        router.push(`/u/${user.address}`);
+                                        router.push(`/${user.address}`);
                                         setIsOpen(false);
                                         setQuery('');
                                     }}
@@ -145,7 +145,7 @@ export function SearchBar({ posts, profiles }: SearchBarProps) {
                                 <button
                                     key={post.id}
                                     onClick={() => {
-                                        router.push(`/post/${post.id}`);
+                                        router.push(`/${post.creator}/status/${post.id}`);
                                         setIsOpen(false);
                                         setQuery('');
                                     }}

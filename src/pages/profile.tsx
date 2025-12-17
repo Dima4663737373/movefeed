@@ -136,7 +136,7 @@ export default function ProfilePage() {
                                 Profile
                             </Link>
                             <Link
-                                href={`/u/${userAddress}`}
+                                href={`/${userAddress}`}
                                 className="flex items-center gap-1 text-sm font-medium text-neutral-400 hover:text-yellow-400 transition-colors"
                                 title="Edit Profile"
                             >

@@ -57,11 +57,13 @@ export async function getMovementBalance(address: string): Promise<number> {
     console.error("Error fetching Movement balance:", error);
 
     // If account doesn't exist or has no balance, return 0
-    if (error instanceof Error && error.message.includes("not found")) {
+    if (error instanceof Error && (error.message.includes("not found") || error.message.includes("500") || error.message.includes("504"))) {
       return 0;
     }
 
-    throw error;
+    // Return 0 for other API errors to prevent UI crash, but log them
+    console.warn("Returning 0 balance due to API error");
+    return 0;
   }
 }
 

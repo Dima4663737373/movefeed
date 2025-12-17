@@ -71,16 +71,24 @@ export function WalletConnectButton() {
 
     // Fetch balance when connected
     useEffect(() => {
+        let isMounted = true;
+        let isFetching = false;
+
         const fetchBalance = async () => {
+            if (isFetching) return;
+            
             if (connected && account) {
+                isFetching = true;
                 try {
                     // Pass current network config to ensure correct RPC is used
                     // Although getBalance internally uses getCurrentNetworkConfig which reads from localStorage,
                     // triggering re-render via context ensures consistency.
                     const bal = await getBalance(account.address.toString());
-                    setBalance(bal);
+                    if (isMounted) setBalance(bal);
                 } catch (error) {
                     console.error('Failed to fetch balance:', error);
+                } finally {
+                    isFetching = false;
                 }
             }
         };
@@ -89,7 +97,11 @@ export function WalletConnectButton() {
 
         // Refresh balance every 10 seconds
         const interval = setInterval(fetchBalance, 10000);
-        return () => clearInterval(interval);
+        
+        return () => {
+            isMounted = false;
+            clearInterval(interval);
+        };
     }, [connected, account, currentNetwork]); // Re-fetch when network changes
 
     const handleConnect = async (walletName: any) => {

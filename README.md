@@ -85,10 +85,9 @@ Open [http://localhost:3000](http://localhost:3000)
    - Choose a style variant
    - Click "Publish Post" and approve in Petra
 
-4. **View Public Profile**
-   - Navigate to `/u/your-handle`
-   - See your posts displayed publicly
-
+4.88. **View Public Profile**
+89.    - Navigate to `/your-handle`
+90.    - See your posts displayed publicly
 5. **Send a Tip**
    - On any post, click "Send Tip"
    - Enter amount or select preset
@@ -136,7 +135,9 @@ src/
 ├── pages/
 │   ├── index.tsx                  # Landing page
 │   ├── dashboard.tsx              # Creator dashboard
-│   └── u/[handle].tsx             # Public creator page
+│   ├── [handle]/
+│   │   ├── index.tsx              # Public creator page
+│   │   └── status/[id].tsx        # Post detail page
 ├── lib/
 │   ├── movementTx.ts              # Transaction helpers
 │   ├── movement.ts                # Network config

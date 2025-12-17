@@ -10,7 +10,6 @@ import { getPost, getCommentsForPost, getDisplayName, getAvatar, OnChainPost } f
 import { octasToMove } from '@/lib/movement';
 import { WalletConnectButton } from '@/components/WalletConnectButton';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
-import AuthGuard from '@/components/AuthGuard';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function SinglePostPage() {
@@ -100,7 +99,7 @@ export default function SinglePostPage() {
     }, [connected, userAddress]);
 
     return (
-        <AuthGuard>
+        <>
             <Head>
                 <title>Post | MoveFeed</title>
             </Head>
@@ -109,7 +108,7 @@ export default function SinglePostPage() {
             <header className="border-b border-[var(--card-border)] bg-[var(--card-bg)] sticky top-0 z-40 transition-colors duration-300">
                 <div className="container-custom py-6">
                     <div className="max-w-[1280px] mx-auto flex items-center justify-between">
-                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.location.href = '/feed'}>
+                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => router.push(connected ? '/feed' : '/')}>
                             <div className="w-10 h-10 bg-[var(--accent)] rounded-lg flex items-center justify-center shadow-lg">
                                 <span className="text-black font-bold text-xl">M</span>
                             </div>
@@ -184,7 +183,7 @@ export default function SinglePostPage() {
                                 <div className="p-8 text-center text-[var(--text-secondary)] bg-[var(--card-bg)] rounded-xl border border-[var(--card-border)]">
                                     <p className="text-lg">{t.postNotFound}</p>
                                     <button 
-                                        onClick={() => router.push('/feed')}
+                                        onClick={() => router.push(connected ? '/feed' : '/')}
                                         className="mt-4 text-[var(--accent)] hover:underline"
                                     >
                                         {t.returnToFeed}
@@ -205,6 +204,6 @@ export default function SinglePostPage() {
                     </div>
                 </div>
             </main>
-        </AuthGuard>
+        </>
     );
 }
