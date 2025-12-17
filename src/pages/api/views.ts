@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import crypto from 'crypto';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!supabaseAdmin) {
@@ -28,53 +29,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ viewCount: data?.view_count || 0 });
 
     } else if (req.method === 'POST') {
-        const { postId } = req.body;
+        const { postId, viewerAddress } = req.body;
 
         if (!postId) {
             return res.status(400).json({ error: 'Post ID is required' });
         }
 
         try {
-            // Try using RPC function first (atomic increment)
-            const { error: rpcError } = await supabaseAdmin.rpc('increment_view_count', {
-                p_post_id: postId.toString()
+            // Generate unique viewer hash
+            let viewerHash: string;
+            
+            if (viewerAddress) {
+                // Trust the wallet address if provided (could be spoofed but low incentive for views)
+                viewerHash = `wallet_${viewerAddress}`;
+            } else {
+                // Guest: Hash IP + User Agent
+                const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+                const userAgent = req.headers['user-agent'] || 'unknown';
+                const raw = `${Array.isArray(ip) ? ip[0] : ip}-${userAgent}`;
+                viewerHash = `guest_${crypto.createHash('sha256').update(raw).digest('hex')}`;
+            }
+
+            // Use the new atomic register_view function
+            const { error: rpcError } = await supabaseAdmin.rpc('register_view', {
+                p_post_id: postId.toString(),
+                p_viewer_hash: viewerHash
             });
 
             if (rpcError) {
-                // Fallback: Check if row exists, then update or insert
-                // This is race-condition prone but better than failing
-                const { data: existing, error: fetchError } = await supabaseAdmin
-                    .from('post_views')
-                    .select('view_count')
-                    .eq('post_id', postId.toString())
-                    .single();
-                
-                // If table doesn't exist, this will error
-                if (fetchError && fetchError.code === '42P01') {
-                     console.warn("post_views table missing, skipping view increment");
-                     return res.status(200).json({ success: true, skipped: true });
-                }
-
-                if (existing) {
-                    const { error: updateError } = await supabaseAdmin
-                        .from('post_views')
-                        .update({ 
-                            view_count: existing.view_count + 1,
-                            last_updated: new Date().toISOString()
-                        })
-                        .eq('post_id', postId.toString());
-                    
-                    if (updateError) throw updateError;
+                // If register_view doesn't exist yet (migration pending), fall back to simple increment
+                // BUT only if the error indicates function missing. 
+                if (rpcError.code === '42883') { // undefined_function
+                     console.warn("register_view RPC missing, falling back to simple increment");
+                     await supabaseAdmin.rpc('increment_view_count', {
+                        p_post_id: postId.toString()
+                     });
                 } else {
-                    const { error: insertError } = await supabaseAdmin
-                        .from('post_views')
-                        .insert({ 
-                            post_id: postId.toString(), 
-                            view_count: 1,
-                            last_updated: new Date().toISOString()
-                        });
-                    
-                    if (insertError) throw insertError;
+                    throw rpcError;
                 }
             }
         } catch (e: any) {

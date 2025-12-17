@@ -245,16 +245,20 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         const handleViews = async () => {
             try {
                 // If detailed view (comments not hidden), increment view count
-                // Use session storage to prevent duplicate counts per session
+                // Use localStorage to prevent duplicate counts per browser (persistent)
                 if (!hideComments) {
                     const viewedKey = `viewed_${post.id}`;
-                    if (!sessionStorage.getItem(viewedKey)) {
+                    // Check localStorage first (more persistent than sessionStorage)
+                    if (!localStorage.getItem(viewedKey)) {
                         await fetch('/api/views', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ postId: post.id })
+                            body: JSON.stringify({ 
+                                postId: post.id,
+                                viewerAddress: account?.address?.toString() 
+                            })
                         });
-                        sessionStorage.setItem(viewedKey, 'true');
+                        localStorage.setItem(viewedKey, 'true');
                     }
                 }
 
@@ -272,7 +276,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         handleViews();
 
         return () => { mounted = false; };
-    }, [post.id, hideComments]);
+    }, [post.id, hideComments, account?.address]);
 
     useEffect(() => {
         const fetchMediaAndMetadata = async () => {
