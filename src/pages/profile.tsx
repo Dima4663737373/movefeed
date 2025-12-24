@@ -9,7 +9,6 @@ import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
-import { WalletConnectButton } from "@/components/WalletConnectButton";
 import { CreatePostForm } from "@/components/CreatePostForm";
 import PostCard from "@/components/PostCard";
 import { getUserPostsPaginated, getUserPostsCount, OnChainPost } from "@/lib/microThreadsClient";
@@ -92,9 +91,9 @@ export default function ProfilePage() {
                 // Fetch count first
                 const count = await getUserPostsCount(userAddress);
                 const LIMIT = 5; // Reduced for testing
-                const start = Math.max(0, count - LIMIT);
                 
-                const userPosts = await getUserPostsPaginated(userAddress, start, LIMIT);
+                // Fetch newest posts (start at 0)
+                const userPosts = await getUserPostsPaginated(userAddress, 0, LIMIT);
                 // Sort by timestamp desc
                 userPosts.sort((a, b) => b.timestamp - a.timestamp);
                 
@@ -109,7 +108,7 @@ export default function ProfilePage() {
     return (
         <AuthGuard>
             <Head>
-                <title>My Profile - MoveFeed</title>
+                <title>My Profile - MoveX</title>
             </Head>
 
             {/* Navigation */}
@@ -120,7 +119,7 @@ export default function ProfilePage() {
                             <div className="w-8 h-8 bg-yellow-400 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(250,204,21,0.3)]">
                                 <span className="text-black font-bold text-lg">M</span>
                             </div>
-                            <span className="text-white font-semibold text-lg tracking-tight">MoveFeed</span>
+                            <span className="text-white font-semibold text-lg tracking-tight">MoveX</span>
                         </div>
                         <div className="flex items-center gap-4">
                             <Link
@@ -157,6 +156,7 @@ export default function ProfilePage() {
                             <div className="scale-90 origin-right">
                                 <WalletConnectButton />
                             </div>
+                            <ThemeSwitcher />
                         </div>
                     </div>
                 </div>
@@ -243,7 +243,7 @@ export default function ProfilePage() {
                         </div>
                     </div>
                 </section>
-            </main>
+            </div>
         </AuthGuard>
     );
 }

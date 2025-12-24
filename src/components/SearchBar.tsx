@@ -15,9 +15,10 @@ import { useLanguage } from '@/contexts/LanguageContext';
 interface SearchBarProps {
     posts: OnChainPost[];
     profiles: Record<string, { displayName?: string; avatar?: string }>;
+    onSearch?: (query: string) => void;
 }
 
-export function SearchBar({ posts, profiles }: SearchBarProps) {
+export function SearchBar({ posts, profiles, onSearch }: SearchBarProps) {
     const router = useRouter();
     const { t } = useLanguage();
     const [query, setQuery] = useState('');
@@ -46,28 +47,54 @@ export function SearchBar({ posts, profiles }: SearchBarProps) {
             return;
         }
 
-        const lowerQuery = query.toLowerCase();
+        const rawQuery = query.trim();
+        const lowerQuery = rawQuery.toLowerCase();
+        
+        let searchUsers = true;
+        let searchPosts = true;
+        let cleanQuery = lowerQuery;
+
+        // Determine search mode based on prefix
+        if (rawQuery.startsWith('@')) {
+            searchPosts = false;
+            cleanQuery = lowerQuery.slice(1);
+        } else if (rawQuery.startsWith('#')) {
+            searchUsers = false;
+            cleanQuery = lowerQuery.slice(1);
+        }
+
+        if (!cleanQuery) {
+             setResults({ users: [], posts: [] });
+             return;
+        }
+
+        let matchedUsers: any[] = [];
+        let matchedPosts: OnChainPost[] = [];
 
         // 1. Search Users
-        // Get unique creators from posts
-        const uniqueCreators = Array.from(new Set(posts.map(p => p.creator)));
-        
-        const matchedUsers = uniqueCreators
-            .map(address => ({
-                address,
-                ...profiles[address]
-            }))
-            .filter(user => {
-                const nameMatch = user.displayName?.toLowerCase().includes(lowerQuery);
-                const addressMatch = user.address.toLowerCase().includes(lowerQuery);
-                return nameMatch || addressMatch;
-            })
-            .slice(0, 5); // Limit to 5 users
+        if (searchUsers) {
+            // Get unique creators from posts
+            const uniqueCreators = Array.from(new Set(posts.map(p => p.creator)));
+            
+            matchedUsers = uniqueCreators
+                .map(address => ({
+                    address,
+                    ...profiles[address]
+                }))
+                .filter(user => {
+                    const nameMatch = user.displayName?.toLowerCase().includes(cleanQuery);
+                    const addressMatch = user.address.toLowerCase().includes(cleanQuery);
+                    return nameMatch || addressMatch;
+                })
+                .slice(0, 5); // Limit to 5 users
+        }
 
         // 2. Search Posts
-        const matchedPosts = posts
-            .filter(post => post.content.toLowerCase().includes(lowerQuery))
-            .slice(0, 5); // Limit to 5 posts
+        if (searchPosts) {
+            matchedPosts = posts
+                .filter(post => post.content.toLowerCase().includes(cleanQuery))
+                .slice(0, 5); // Limit to 5 posts
+        }
 
         setResults({ users: matchedUsers, posts: matchedPosts });
         setIsOpen(true);
@@ -90,7 +117,26 @@ export function SearchBar({ posts, profiles }: SearchBarProps) {
                     onFocus={() => {
                         if (query.trim()) setIsOpen(true);
                     }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            setIsOpen(false);
+                            if (onSearch) {
+                                onSearch(query);
+                            }
+                        }
+                    }}
                 />
+                <button
+                    onClick={() => {
+                        setIsOpen(false);
+                        if (onSearch) onSearch(query);
+                    }}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                </button>
             </div>
 
             {/* Dropdown Results */}
@@ -152,7 +198,7 @@ export function SearchBar({ posts, profiles }: SearchBarProps) {
                                     className="w-full px-4 py-3 hover:bg-[var(--hover-bg)] transition-colors text-left"
                                 >
                                     <p className="text-sm text-[var(--text-primary)] line-clamp-2 mb-1">
-                                        {post.content}
+                                        {post.content.replace(/\[ref:[^\]]+\]/g, '').trim()}
                                     </p>
                                     <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
                                         <span>

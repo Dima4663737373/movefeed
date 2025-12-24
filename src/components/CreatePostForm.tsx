@@ -6,32 +6,42 @@
 
 'use client';
 
-import { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useNotifications } from '@/components/Notifications';
 import { createPostOnChain, createCommentOnChain, OnChainPost } from '@/lib/microThreadsClient';
 import { supabase } from '@/lib/supabaseClient';
 import { v4 as uuidv4 } from 'uuid';
+import { sendSocialNotification } from '@/contexts/SocialActivityContext';
+import { extractMentions } from '@/utils/textUtils';
+import CalendarModal from './CalendarModal';
+import GifPicker from './GifPicker';
 
 interface CreatePostFormProps {
     onPostCreated?: (post?: OnChainPost) => void;
     parentId?: number;
     repostOf?: OnChainPost;
+    parentAuthorAddress?: string;
 }
 
 interface MediaItem {
     url: string;
-    type: 'image' | 'video';
+    type: 'image' | 'video' | 'audio';
 }
 
-export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePostFormProps) {
+export function CreatePostForm({ onPostCreated, parentId, repostOf, parentAuthorAddress }: CreatePostFormProps) {
     const { t } = useLanguage();
+    const { addNotification } = useNotifications();
     const { connected, signAndSubmitTransaction, account } = useWallet();
     const [content, setContent] = useState('');
     const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
     const [creating, setCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
+    const [showScheduleModal, setShowScheduleModal] = useState(false);
+    const [showGifPicker, setShowGifPicker] = useState(false);
+    const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const processFiles = (files: File[]) => {
@@ -131,6 +141,24 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                     }
                 };
                 reader.readAsDataURL(file);
+            } else if (file.type.startsWith('audio/')) {
+                // Audio handling
+                if (file.size > 10 * 1024 * 1024) {
+                    setError("Audio too large (>10MB)");
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    if (event.target?.result) {
+                        setMediaItems(prev => [...prev, { 
+                            url: event.target!.result as string, 
+                            type: 'audio' 
+                        }]);
+                        setError(null);
+                    }
+                };
+                reader.readAsDataURL(file);
             }
         });
     };
@@ -180,198 +208,249 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
             return;
         }
 
-        try {
-            setCreating(true);
+        // Optimistic Update
+        const tempId = `pending-${Date.now()}`;
+        // Create a temporary ref for the preview if needed
+        const tempRef = mediaItems.length > 0 || repostOf ? uuidv4() : '';
+        let previewContent = content;
+        if (scheduledDate) {
+            previewContent += `\n\n[schedule:${Math.floor(scheduledDate.getTime() / 1000)}]`;
+        }
+        previewContent += (tempRef ? `\n[ref:${tempRef}]` : '');
+        
+        const optimisticPost = {
+            id: tempId, // Use string for temp ID
+            global_id: 0,
+            creator: account!.address.toString(), // We checked connected above
+            creatorAddress: account!.address.toString(),
+            creatorHandle: account!.ansName || undefined, // Add handle for display
+            content: previewContent,
+            image_url: mediaItems.length > 0 ? mediaItems[0].url : '',
+            style: 0,
+            totalTips: 0, // Match PostCard expected props
+            total_tips: 0, // Match OnChainPost
+            createdAt: Math.floor(Date.now() / 1000), // Match PostCard
+            timestamp: Math.floor(Date.now() / 1000), // Match OnChainPost
+            is_deleted: false,
+            updated_at: Math.floor(Date.now() / 1000),
+            last_tip_timestamp: 0,
+            parent_id: parentId || 0,
+            is_comment: !!parentId,
+            status: 'pending' as const
+        };
 
-            let finalContent = content;
-            let postRef = '';
+        // Dispatch pending event immediately - REMOVED per user request to wait for transaction
+        // window.dispatchEvent(new CustomEvent('post_pending', { detail: optimisticPost }));
+        
+        // Don't clear form immediately - wait for success
+        // setContent('');
+        // setMediaItems([]);
+        // if (fileInputRef.current) fileInputRef.current.value = '';
+        // setSuccess(true);
+        
+        if (onPostCreated) {
+            // We pass the optimistic post so the parent can close/update if it wants
+            // But we don't want to block.
+             onPostCreated(optimisticPost as any);
+        }
 
-            // Generate Ref if we have media OR repost
-            if (mediaItems.length > 0 || repostOf) {
-                postRef = uuidv4();
-                finalContent += `\n[ref:${postRef}]`;
-            }
+        // Start Background Process
+        (async () => {
+            try {
+                setCreating(true); // Internal state
+                
+                let finalContent = content;
 
-            // Refactored logic:
-            let uploadedMediaUrls: string[] = [];
-            
-            console.log("Starting media processing...");
+                // Append schedule if set
+                if (scheduledDate) {
+                    finalContent += `\n\n[schedule:${Math.floor(scheduledDate.getTime() / 1000)}]`;
+                }
+                let postRef = tempRef; // Reuse the ref we generated for consistency? Or generate new? 
+                // Better reuse if we want the preview to match, but we need to ensure we use this ref in the upload.
+                // The previous code generated ref inside try block. Let's use the one we generated.
+                
+                if (postRef && !content.includes(`[ref:${postRef}]`)) {
+                     // Reconstruct the content exactly as we previewed
+                     finalContent += `\n[ref:${postRef}]`;
+                } else if (!postRef && (mediaItems.length > 0 || repostOf)) {
+                     // Should have been generated above
+                     postRef = uuidv4();
+                     finalContent += `\n[ref:${postRef}]`;
+                }
 
-            // Handle Media
-            if (mediaItems.length > 0) {
-                if (!supabase) {
-                    console.warn("Supabase client not initialized. Skipping upload.");
-                    // Check if any image is too large
-                    const largeItem = mediaItems.find(i => i.url.startsWith('data:') && i.url.length > 50000);
-                    if (largeItem) {
-                         throw new Error("Image storage is not configured (missing Supabase credentials) and image is too large for on-chain storage.");
-                    }
-                } else {
-                    const sb = supabase;
-                    // Wait for all uploads to complete and return the new URLs
-                    const processedItems = await Promise.all(mediaItems.map(async (item) => {
-                        let mediaUrl = item.url;
-                        
-                        // If it's a base64 string (starts with data:), try to upload it
-                        if (item.url.startsWith('data:')) {
-                            console.log("Attempting to upload base64 image...");
-                            try {
-                                const fileName = `${postRef}/${uuidv4()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
-                                const contentType = item.type === 'video' ? 'video/mp4' : 'image/jpeg';
-                                
-                                // Upload via API to bypass RLS issues with anonymous client
-                                const uploadRes = await fetch('/api/upload', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        fileName,
-                                        fileData: item.url,
-                                        contentType
-                                    })
-                                });
+                // ... Media Upload Logic ...
+                let uploadedMediaUrls: string[] = [];
+                
+                if (mediaItems.length > 0) {
+                    if (!supabase) {
+                         // Fallback logic
+                         const largeItem = mediaItems.find(i => i.url.startsWith('data:') && i.url.length > 50000);
+                         if (largeItem) throw new Error("Image too large for chain and no storage configured.");
+                    } else {
+                        const sb = supabase;
+                        const processedItems = await Promise.all(mediaItems.map(async (item) => {
+                            let mediaUrl = item.url;
+                            if (item.url.startsWith('data:')) {
+                                try {
+                                    let extension = 'jpg';
+                                    if (item.type === 'video') extension = 'mp4';
+                                    else if (item.type === 'audio') extension = 'mp3';
+                                    
+                                    const fileName = `${postRef}/${uuidv4()}.${extension}`;
+                                    const contentType = item.type === 'video' ? 'video/mp4' : item.type === 'audio' ? 'audio/mpeg' : 'image/jpeg';
+                                    
+                                    const uploadRes = await fetch('/api/upload', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            fileName,
+                                            fileData: item.url,
+                                            contentType
+                                        })
+                                    });
 
-                                if (uploadRes.ok) {
-                                    const result = await uploadRes.json();
-                                    mediaUrl = result.publicUrl;
-                                    console.log("Upload successful:", mediaUrl);
-                                } else {
-                                    console.warn("Upload failed via API, using base64 fallback");
-                                    const err = await uploadRes.json();
-                                    console.warn("API Error:", err);
+                                    if (uploadRes.ok) {
+                                        const result = await uploadRes.json();
+                                        mediaUrl = result.publicUrl;
+                                    }
+                                } catch (e) {
+                                    console.error("Upload failed", e);
                                 }
-                            } catch (e) {
-                                console.error("Error processing media for upload", e);
                             }
-                        }
+                            return {
+                                post_ref: postRef,
+                                url: mediaUrl,
+                                type: item.type
+                            };
+                        }));
+                        
+                        uploadedMediaUrls = processedItems.map(i => i.url);
+                        await sb.from('post_media').insert(processedItems);
+                    }
+                }
 
-                        // Safety check: if fallback to base64 happens, ensure it's not too large for on-chain
-                        if (mediaUrl.startsWith('data:') && mediaUrl.length > 50000) {
-                             console.error("Image too large for chain:", mediaUrl.length);
-                             throw new Error("Image upload failed and file is too large for on-chain storage. Please try a smaller image or check your connection.");
-                        }
+                // ... Repost Metadata ...
+                if (repostOf && postRef && supabase) {
+                    await supabase.from('post_metadata').insert({
+                        post_ref: postRef,
+                        repost_of: repostOf.global_id !== undefined ? repostOf.global_id.toString() : repostOf.id.toString(),
+                        metadata: {} 
+                    });
+                }
 
-                        return {
-                            post_ref: postRef,
-                            url: mediaUrl,
-                            type: item.type
-                        };
+                const legacyImage = uploadedMediaUrls.length > 0 && mediaItems[0].type === 'image' 
+                    ? uploadedMediaUrls[0] 
+                    : (mediaItems.length > 0 && mediaItems[0].type === 'image' ? mediaItems[0].url : '');
+
+                if (legacyImage.length > 200000) {
+                     throw new Error("Image too large for on-chain storage.");
+                }
+
+                // Chain Transaction
+                if (parentId) {
+                    await createCommentOnChain(
+                        parentId,
+                        finalContent,
+                        legacyImage,
+                        signAndSubmitTransaction
+                    );
+
+                    // Notify parent post author about comment
+                    if (parentAuthorAddress && parentAuthorAddress !== account?.address?.toString()) {
+                        sendSocialNotification(parentAuthorAddress, {
+                            type: 'comment',
+                            actorAddress: account!.address.toString(),
+                            targetPostId: parentId.toString(),
+                            targetPostContent: finalContent.substring(0, 100),
+                            content: finalContent.substring(0, 100)
+                        });
+                    }
+
+                    // Notify mentioned users in comment
+                    const mentions = extractMentions(finalContent);
+                    mentions.forEach(mention => {
+                        // Check if mention looks like an address (basic check)
+                        if ((mention.startsWith('0x') || mention.length > 20) && mention !== account?.address?.toString()) {
+                            sendSocialNotification(mention, {
+                                type: 'mention',
+                                actorAddress: account!.address.toString(),
+                                targetPostId: parentId.toString(),
+                                targetPostContent: finalContent.substring(0, 100),
+                                content: finalContent.substring(0, 100)
+                            });
+                        }
+                    });
+                } else {
+                    const newPostId = await createPostOnChain(
+                        finalContent,
+                        legacyImage, 
+                        0, 
+                        signAndSubmitTransaction
+                    );
+
+                    // Notify original author about quote/repost
+                    if (repostOf && repostOf.creator !== account?.address?.toString()) {
+                         sendSocialNotification(repostOf.creator, {
+                            type: 'quote',
+                            actorAddress: account!.address.toString(),
+                            targetPostId: repostOf.id.toString(),
+                            targetPostContent: repostOf.content.substring(0, 100),
+                            content: finalContent.substring(0, 100)
+                        });
+                    }
+                    
+                    // Notify mentioned users in new post
+                    const mentions = extractMentions(finalContent);
+                    mentions.forEach(mention => {
+                        if ((mention.startsWith('0x') || mention.length > 20) && mention !== account?.address?.toString()) {
+                            sendSocialNotification(mention, {
+                                type: 'mention',
+                                actorAddress: account!.address.toString(),
+                                targetPostId: newPostId ? newPostId.toString() : '0',
+                                targetPostContent: finalContent.substring(0, 100),
+                                content: finalContent.substring(0, 100)
+                            });
+                        }
+                    });
+                    
+                    // Success!
+                    // Dispatch success event to update the pending post with real ID
+                     window.dispatchEvent(new CustomEvent('post_success', { 
+                        detail: { 
+                            tempId, 
+                            finalId: newPostId,
+                            post: { ...optimisticPost, id: newPostId, status: 'success' }
+                        } 
                     }));
 
-                    uploadedMediaUrls = processedItems.map(i => i.url);
-
-                    const { error: mediaError } = await sb
-                        .from('post_media')
-                        .insert(processedItems);
-                    
-                    if (mediaError) {
-                        console.error("Error uploading media:", mediaError);
-                    }
+                    // Clear form
+                    setContent('');
+                    setMediaItems([]);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                    setSuccess(true);
                 }
-            }
 
-            // Insert Metadata if Repost
-            if (repostOf && postRef) {
-                 if (!supabase) {
-                     console.warn("Supabase not initialized, cannot save repost metadata");
-                 } else {
-                    const { error: metaError } = await supabase
-                        .from('post_metadata')
-                        .insert({
-                            post_ref: postRef,
-                            repost_of: repostOf.global_id !== undefined ? repostOf.global_id.toString() : repostOf.id.toString(),
-                            metadata: {} 
-                        });
-                    if (metaError) {
-                        console.error("Error inserting repost metadata:", metaError);
-                    } else {
-                        console.log("Repost metadata saved:", postRef);
-                    }
-                 }
-            }
-
-            // Pass first image as legacy image_url if available
-            // Use the uploaded URL if available, otherwise fallback to original (which might be base64)
-            const legacyImage = uploadedMediaUrls.length > 0 && mediaItems[0].type === 'image' 
-                ? uploadedMediaUrls[0] 
-                : (mediaItems.length > 0 && mediaItems[0].type === 'image' ? mediaItems[0].url : '');
-
-            console.log("Preparing transaction with legacyImage length:", legacyImage.length);
-
-            // Client-side validation for image size
-            if (legacyImage.length > 200000) { // Limit to 200KB safe margin (contract is 250KB)
-                setError(t.imageTooLarge || "Image too large for on-chain storage. Please try a smaller image.");
+                addNotification(t.postCreatedSuccess, "success", { persist: false });
+                
+            } catch (error: any) {
+                console.error('Failed to create post:', error);
+                const msg = error?.message || t.postCreationError;
+                
+                // Dispatch fail event
+                window.dispatchEvent(new CustomEvent('post_fail', { 
+                    detail: { tempId, error: msg } 
+                }));
+                
+                // We should also probably show a notification so the user knows WHY it failed
+                addNotification("Post failed: " + msg, "error", { persist: true });
+                
+                // Optional: Restore draft? 
+                // Since form is cleared, maybe we can save it to localStorage drafts?
+                // For now, let's just notify.
+            } finally {
                 setCreating(false);
-                return;
             }
-
-            if (parentId) {
-                console.log("Creating comment...");
-                await createCommentOnChain(
-                    parentId,
-                    finalContent,
-                    legacyImage,
-                    signAndSubmitTransaction
-                );
-                
-                if (onPostCreated) {
-                    onPostCreated();
-                }
-            } else {
-                console.log("Creating post...");
-                const newPostId = await createPostOnChain(
-                    finalContent,
-                    legacyImage, 
-                    0, 
-                    signAndSubmitTransaction
-                );
-                
-                if (account?.address && onPostCreated) {
-                    const optimisticPost: OnChainPost = {
-                        // Use global_id if available (it should be now), otherwise fallback to local ID logic
-                        // If newPostId is the global_id, we put it in global_id field.
-                        // We put newPostId in 'id' as well for compatibility, but note it might be global.
-                        // Wait, 'id' in OnChainPost is usually user-local ID.
-                        // But for global feed we need global_id.
-                        // If createPostOnChain returns global_id, we should use it as global_id.
-                        // And for 'id', we don't know the user-local ID unless we fetch or guess.
-                        // But for the Feed, we care about global_id.
-                        id: newPostId || Date.now(), 
-                        global_id: newPostId || undefined,
-                        creator: account.address.toString(),
-                        content: finalContent,
-                        image_url: legacyImage,
-                        style: 0,
-                        total_tips: 0,
-                        timestamp: Math.floor(Date.now() / 1000),
-                        is_deleted: false,
-                        updated_at: Math.floor(Date.now() / 1000),
-                        last_tip_timestamp: 0,
-                        parent_id: 0,
-                        is_comment: false
-                    };
-                    
-                    onPostCreated(optimisticPost);
-                }
-            }
-
-            console.log(`Post created!`);
-            setContent('');
-            setMediaItems([]);
-            setSuccess(true);
-        } catch (error: any) {
-            console.error('Failed to create post:', error);
-            
-            // Handle wallet rejection specifically
-            if (error?.message?.includes("User has rejected") || error?.toString().includes("User has rejected")) {
-                setError("Transaction rejected. Please ensure you approved the request in your wallet.");
-            } else if (error?.message?.includes("module_not_found") || error?.toString().includes("module_not_found")) {
-                setError("Module not found. Please switch your wallet to Movement Testnet (Bardock).");
-            } else {
-                setError(error instanceof Error ? error.message : t.postCreationError);
-            }
-        } finally {
-            setCreating(false);
-        }
+        })();
     };
 
     return (
@@ -436,6 +515,10 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                         <div key={index} className="relative group aspect-video">
                             {item.type === 'video' ? (
                                 <video src={item.url} className="h-32 w-full rounded-xl border border-[var(--card-border)] object-cover" />
+                            ) : item.type === 'audio' ? (
+                                <div className="h-32 w-full rounded-xl border border-[var(--card-border)] bg-[var(--bg-secondary)] flex items-center justify-center p-2">
+                                     <audio src={item.url} controls className="w-full" />
+                                </div>
                             ) : (
                                 <img src={item.url} alt={`Preview ${index}`} className="h-32 w-full rounded-xl border border-[var(--card-border)] object-cover" />
                             )}
@@ -453,18 +536,37 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                                     Video
                                 </div>
                             )}
+                            {item.type === 'audio' && (
+                                <div className="absolute bottom-2 right-2 bg-black/60 px-2 py-1 rounded text-xs text-white">
+                                    Audio
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
             )}
 
-            <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-4">
+            <div className="mt-3 flex items-center justify-between flex-wrap gap-2 relative">
+                {showGifPicker && (
+                    <div className="absolute bottom-full left-0 mb-2 z-50">
+                        <div className="fixed inset-0 z-40" onClick={() => setShowGifPicker(false)}></div>
+                        <div className="relative z-50">
+                            <GifPicker
+                                onSelect={(url) => {
+                                    setMediaItems(prev => [...prev, { url, type: 'image' }]);
+                                    setShowGifPicker(false);
+                                }}
+                                onClose={() => setShowGifPicker(false)}
+                            />
+                        </div>
+                    </div>
+                )}
+                <div className="flex items-center gap-4 flex-wrap">
                     <input
                         type="file"
                         ref={fileInputRef}
                         onChange={handleMediaSelect}
-                        accept="image/*,video/*"
+                        accept="image/*,video/*,audio/*"
                         multiple
                         className="hidden"
                     />
@@ -482,7 +584,7 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
-                        {t.photo}
+                        <span className="hidden sm:inline">{t.photo}</span>
                     </button>
                     <button
                         type="button"
@@ -498,9 +600,32 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
-                        {t.video}
+                        <span className="hidden sm:inline">{t.video}</span>
                     </button>
-                    <span className="text-xs text-neutral-500">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (fileInputRef.current) {
+                                fileInputRef.current.accept = "audio/*";
+                                fileInputRef.current.click();
+                            }
+                        }}
+                        className="text-neutral-400 hover:text-[var(--accent)] transition-colors flex items-center gap-2 text-sm font-medium"
+                        disabled={creating || mediaItems.length >= 4}
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                        <span className="hidden sm:inline">Audio</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setShowGifPicker(!showGifPicker)}
+                        className="text-neutral-400 hover:text-[var(--accent)] transition-colors flex items-center gap-2 text-sm font-medium"
+                        disabled={creating || mediaItems.length >= 4}
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        <span className="hidden sm:inline">GIF</span>
+                    </button>
+                    <span className="text-xs text-neutral-500 ml-auto">
                         {mediaItems.length}/4
                     </span>
                 </div>
@@ -512,6 +637,17 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
 
             {/* Submit Button */}
             <div className="flex justify-end">
+                {!repostOf && (
+                    <button
+                        type="button"
+                        onClick={() => setShowScheduleModal(true)}
+                        disabled={creating}
+                        className={`mr-2 p-2 rounded-full hover:bg-[var(--bg-secondary)] transition-colors ${scheduledDate ? 'text-blue-500 bg-blue-500/10' : 'text-neutral-400'}`}
+                        title="Schedule"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    </button>
+                )}
                 <button
                     type="submit"
                     disabled={!connected || creating || (!content.trim() && mediaItems.length === 0 && !repostOf)}
@@ -530,6 +666,15 @@ export function CreatePostForm({ onPostCreated, parentId, repostOf }: CreatePost
                     )}
                 </button>
             </div>
+            
+            <CalendarModal 
+                isOpen={showScheduleModal} 
+                onClose={() => setShowScheduleModal(false)} 
+                onSchedule={(date) => {
+                    setScheduledDate(date);
+                    setShowScheduleModal(false);
+                }}
+            />
         </form>
     );
 }

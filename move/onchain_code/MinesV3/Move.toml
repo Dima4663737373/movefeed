@@ -1,0 +1,10 @@
+[package]
+name = "MinesV3"
+version = "1.0.0"
+upgrade_policy = "compatible"
+
+[addresses]
+mines = "_"
+
+[dependencies]
+AptosFramework = { git = "https://github.com/movementlabsxyz/aptos-core.git", subdir = "aptos-move/framework/aptos-framework", rev = "movement" }

@@ -22,9 +22,15 @@ export default function RightSidebar({ posts, stats, currentUserAddress, profile
 
     // Logic to find "Who to Follow"
     // Get unique creators excluding current user
-    const uniqueCreators = Array.from(new Set(posts.map(p => p.creator)))
-        .filter(creator => creator !== currentUserAddress && creator !== "0x0")
-        .slice(0, 3); // Take top 3 for now
+    const uniqueCreators = useMemo(() => {
+        const creators = new Set<string>();
+        posts.forEach(p => {
+            if (p.creator && p.creator !== currentUserAddress && p.creator !== "0x0") {
+                creators.add(p.creator);
+            }
+        });
+        return Array.from(creators).slice(0, 3);
+    }, [posts, currentUserAddress]);
 
     // Trending Hashtags Logic
     const trendingHashtags = useMemo(() => {
@@ -72,11 +78,11 @@ export default function RightSidebar({ posts, stats, currentUserAddress, profile
                 <h3 className="text-xl font-bold text-[var(--text-primary)] mb-4">{t.whoToFollow}</h3>
                 <div className="space-y-3">
                     {uniqueCreators.length > 0 ? (
-                        uniqueCreators.map(creator => {
+                        uniqueCreators.map((creator, index) => {
                             const profile = profiles[creator] || {};
                             return (
                                 <UserSuggestion
-                                    key={creator}
+                                    key={`${creator}-${index}`}
                                     creator={creator}
                                     currentUserAddress={currentUserAddress}
                                     profile={profile}
@@ -115,7 +121,7 @@ export default function RightSidebar({ posts, stats, currentUserAddress, profile
                     <a href="#" className="hover:underline">{t.privacy}</a>
                     <a href="#" className="hover:underline">{t.docs}</a>
                 </div>
-                <div>© 2025 MoveFeed. {t.builtOnMovement}.</div>
+                <div>© 2025 MoveX. {t.builtOnMovement}.</div>
             </div>
         </div>
     );

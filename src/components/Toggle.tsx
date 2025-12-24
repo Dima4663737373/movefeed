@@ -11,8 +11,8 @@ export function Toggle({ checked, onChange, label, description }: ToggleProps) {
     return (
         <div className="flex items-center justify-between py-3">
             <div className="flex flex-col">
-                {label && <span className="text-white font-medium">{label}</span>}
-                {description && <span className="text-xs text-neutral-400">{description}</span>}
+                {label && <span className="text-[var(--text-primary)] font-medium">{label}</span>}
+                {description && <span className="text-xs text-[var(--text-secondary)]">{description}</span>}
             </div>
             <button
                 type="button"
@@ -22,8 +22,8 @@ export function Toggle({ checked, onChange, label, description }: ToggleProps) {
                 className={`
                     relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent 
                     transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 
-                    focus-visible:ring-white focus-visible:ring-opacity-75
-                    ${checked ? 'bg-green-500' : 'bg-neutral-700'}
+                    focus-visible:ring-[var(--accent)] focus-visible:ring-opacity-75
+                    ${checked ? 'bg-[var(--accent)]' : 'bg-[var(--card-border)]'}
                 `}
             >
                 <span className="sr-only">{label || 'Toggle'}</span>

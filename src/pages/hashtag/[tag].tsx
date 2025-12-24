@@ -9,15 +9,12 @@ import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { WalletConnectButton } from "@/components/WalletConnectButton";
-import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import PostCard from "@/components/PostCard";
 import RightSidebar from "@/components/RightSidebar";
-import { getDisplayName, OnChainPost, getAvatar, getGlobalPostsCount, getAllPostsPaginated } from "@/lib/microThreadsClient";
+import { getDisplayName, OnChainPost, getAvatar, getGlobalPostsCount, getGlobalPosts } from "@/lib/microThreadsClient";
 import { getStats } from "@/lib/movementClient";
 import { formatMovementAddress, octasToMove } from "@/lib/movement";
 import AuthGuard from "@/components/AuthGuard";
-import LeftSidebar from "@/components/LeftSidebar";
 import { extractHashtags } from "@/utils/textUtils";
 
 export default function HashtagPage() {
@@ -44,8 +41,8 @@ export default function HashtagPage() {
 
             // Fetch latest 200 posts for search & stats
             const LIMIT = 200;
-            const start = Math.max(0, globalCount - LIMIT);
-            const allPosts = await getAllPostsPaginated(start, LIMIT);
+            // getGlobalPosts takes page index, not offset
+            const allPosts = await getGlobalPosts(0, LIMIT);
             
             setGlobalPosts(allPosts);
 
@@ -105,43 +102,13 @@ export default function HashtagPage() {
     return (
         <AuthGuard>
             <Head>
-                <title>#{tag} - MoveFeed</title>
+                <title>#{tag} - MoveX</title>
             </Head>
 
-            <header className="border-b border-[var(--card-border)] bg-[var(--card-bg)] sticky top-0 z-40 transition-colors duration-300">
-                <div className="container-custom py-6">
-                    <div className="max-w-[1280px] mx-auto flex items-center justify-between">
-                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.location.href = '/feed'}>
-                            <div className="w-10 h-10 bg-[var(--accent)] rounded-lg flex items-center justify-center shadow-lg">
-                                <span className="text-black font-bold text-xl">M</span>
-                            </div>
-                            <span className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[var(--accent)] to-purple-400">
-                                MoveFeed
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <ThemeSwitcher />
-                            <WalletConnectButton />
-                        </div>
-                    </div>
-                </div>
-            </header>
-
-            <main className="container-custom py-6 md:py-10">
-                <div className="max-w-[1280px] mx-auto">
-                    <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] xl:grid-cols-[240px_1fr_280px] gap-y-8 lg:gap-x-0 lg:divide-x lg:divide-[var(--card-border)]">
-                        {/* Left Sidebar */}
-                        <div className="lg:pr-6">
-                            <LeftSidebar 
-                                activePage="explore"
-                                currentUserAddress={userAddress} 
-                                displayName={myDisplayName} 
-                                avatar={myAvatar}
-                            />
-                        </div>
-
-                        {/* Main Feed */}
-                        <div className="min-w-0 lg:px-6 space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-6 xl:divide-x xl:divide-[var(--card-border)]">
+                    
+                    {/* Main Feed */}
+                    <div className="min-w-0 lg:px-6 space-y-6">
                         <div className="flex items-center gap-4 mb-6">
                             <Link href="/feed" className="p-2 rounded-full hover:bg-[var(--hover-bg)] text-[var(--text-secondary)]">
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -152,9 +119,22 @@ export default function HashtagPage() {
                         </div>
 
                         {loading ? (
-                            <div className="text-center py-12">
-                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--accent)] mx-auto mb-4"></div>
-                                <p className="text-[var(--text-secondary)]">Loading posts...</p>
+                            <div className="space-y-4">
+                                {[1, 2, 3, 4, 5].map(i => (
+                                    <div key={i} className="bg-[var(--card-bg)] border-b border-[var(--card-border)] p-4 animate-pulse">
+                                        <div className="flex gap-3">
+                                            <div className="w-10 h-10 bg-neutral-800 rounded-full"></div>
+                                            <div className="flex-1 space-y-2 py-1">
+                                                <div className="h-4 bg-neutral-800 rounded w-1/3"></div>
+                                                <div className="h-3 bg-neutral-800 rounded w-1/4"></div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 space-y-2">
+                                            <div className="h-4 bg-neutral-800 rounded w-full"></div>
+                                            <div className="h-4 bg-neutral-800 rounded w-5/6"></div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         ) : posts.length > 0 ? (
                             posts.map((post) => (
@@ -190,8 +170,6 @@ export default function HashtagPage() {
                             />
                         </div>
                     </div>
-                </div>
-            </main>
         </AuthGuard>
     );
 }

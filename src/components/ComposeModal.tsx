@@ -13,7 +13,14 @@ import { useNetwork } from '@/contexts/NetworkContext';
 import { createPostOnChain, OnChainPost } from '@/lib/microThreadsClient';
 import { supabase } from '@/lib/supabaseClient';
 import { v4 as uuidv4 } from 'uuid';
-import EmojiPicker, { Theme, EmojiClickData } from 'emoji-picker-react';
+import { Theme, EmojiClickData } from 'emoji-picker-react';
+import dynamic from 'next/dynamic';
+import GifPicker from './GifPicker';
+
+const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
+import { sendSocialNotification } from '@/contexts/SocialActivityContext';
+import { extractMentions } from '@/utils/textUtils';
+import CalendarModal from './CalendarModal';
 
 interface ComposeModalProps {
     isOpen: boolean;
@@ -23,7 +30,7 @@ interface ComposeModalProps {
 
 interface MediaItem {
     url: string;
-    type: 'image' | 'video';
+    type: 'image' | 'video' | 'audio';
 }
 
 interface Draft {
@@ -46,9 +53,12 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
     const [drafts, setDrafts] = useState<Draft[]>([]);
     const [showPollUI, setShowPollUI] = useState(false);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [showGifPicker, setShowGifPicker] = useState(false);
     const [showDurationPicker, setShowDurationPicker] = useState(false);
     const [showBountyInput, setShowBountyInput] = useState(false);
     const [bountyAmount, setBountyAmount] = useState('');
+    const [showScheduleModal, setShowScheduleModal] = useState(false);
+    const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
     
     // Poll state (UI only for now)
     const [pollOptions, setPollOptions] = useState(['', '']);
@@ -56,6 +66,7 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const modalRef = useRef<HTMLDivElement>(null);
 
     // Load drafts on mount
     useEffect(() => {
@@ -99,6 +110,38 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
         localStorage.setItem('microthreads_drafts', JSON.stringify(updatedDrafts));
     };
 
+    // Lock body scroll
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = 'unset';
+        }
+        return () => {
+            document.body.style.overflow = 'unset';
+        };
+    }, [isOpen]);
+
+    // Close on Escape key
+    useEffect(() => {
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && isOpen) {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleEscape);
+        return () => {
+            window.removeEventListener('keydown', handleEscape);
+        };
+    }, [isOpen, onClose]);
+
+    // Auto-focus
+    useEffect(() => {
+        if (isOpen && textareaRef.current) {
+            textareaRef.current.focus();
+        }
+    }, [isOpen]);
+
     // Auto-resize textarea
     useEffect(() => {
         if (textareaRef.current) {
@@ -106,6 +149,41 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
             textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
         }
     }, [content]);
+
+    // Focus Trap
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const handleTabKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Tab') return;
+
+            if (!modalRef.current) return;
+
+            const focusableElements = modalRef.current.querySelectorAll(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            
+            if (focusableElements.length === 0) return;
+
+            const firstElement = focusableElements[0] as HTMLElement;
+            const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+
+            if (e.shiftKey) {
+                if (document.activeElement === firstElement) {
+                    lastElement.focus();
+                    e.preventDefault();
+                }
+            } else {
+                if (document.activeElement === lastElement) {
+                    firstElement.focus();
+                    e.preventDefault();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleTabKey);
+        return () => window.removeEventListener('keydown', handleTabKey);
+    }, [isOpen]);
 
     const processFiles = (files: File[]) => {
         if (files.length === 0) return;
@@ -204,6 +282,24 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
                     }
                 };
                 reader.readAsDataURL(file);
+            } else if (file.type.startsWith('audio/')) {
+                // Audio handling
+                if (file.size > 10 * 1024 * 1024) {
+                    setError("Audio too large (>10MB)");
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    if (event.target?.result) {
+                        setMediaItems(prev => [...prev, { 
+                            url: event.target!.result as string, 
+                            type: 'audio' 
+                        }]);
+                        setError(null);
+                    }
+                };
+                reader.readAsDataURL(file);
             }
         });
     };
@@ -243,143 +339,205 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
             return;
         }
 
-        try {
-            setCreating(true);
+        // Optimistic Update
+        const tempId = `pending-modal-${Date.now()}`;
+        const tempRef = mediaItems.length > 0 ? uuidv4() : '';
+        
+        // Prepare content with preview
+        let previewContent = content;
+        if (bountyAmount && !isNaN(parseFloat(bountyAmount)) && parseFloat(bountyAmount) > 0) {
+            previewContent += `\n\n[bounty:${bountyAmount}]`;
+        }
+        if (scheduledDate) {
+            previewContent += `\n\n[schedule:${Math.floor(scheduledDate.getTime() / 1000)}]`;
+        }
+        if (showPollUI && pollOptions.filter(o => o.trim()).length >= 2) {
+             const pollData = {
+                question: "Poll",
+                options: pollOptions.filter(o => o.trim()),
+                duration: pollDuration,
+                endsAt: Date.now() + (pollDuration * 24 * 60 * 60 * 1000)
+            };
+            const base64Data = btoa(unescape(encodeURIComponent(JSON.stringify(pollData))));
+            previewContent += `\n\n[poll:${base64Data}]`;
+        }
+        if (tempRef) {
+            previewContent += `\n[ref:${tempRef}]`;
+        }
 
-            let finalContent = content;
-            let postRef = '';
+        const optimisticPost = {
+            id: tempId,
+            global_id: 0,
+            creatorAddress: account!.address.toString(),
+            creatorHandle: account!.ansName || undefined,
+            content: previewContent,
+            image_url: mediaItems.length > 0 ? mediaItems[0].url : '',
+            style: 0,
+            totalTips: 0,
+            createdAt: Date.now() / 1000,
+            status: 'pending' as const
+        };
 
-            // Generate Ref if we have media
-            if (mediaItems.length > 0) {
-                postRef = uuidv4();
-                finalContent += `\n[ref:${postRef}]`;
-            }
+        // Dispatch pending event
+        window.dispatchEvent(new CustomEvent('post_pending', { detail: optimisticPost }));
+        
+        // Close modal immediately
+        onClose();
+        
+        // Reset local state (though component unmounts usually, if it persists it's good)
+        setContent('');
+        setMediaItems([]);
+        setShowPollUI(false);
+        setPollOptions(['', '']);
 
-            // Append bounty tag if set
-            if (bountyAmount && !isNaN(parseFloat(bountyAmount)) && parseFloat(bountyAmount) > 0) {
-                finalContent += `\n\n[bounty:${bountyAmount}]`;
-            }
+        // Background Process
+        (async () => {
+            try {
+                setCreating(true);
 
-            // Append Poll Data (Visual only for now, stored in text)
-            if (showPollUI && pollOptions.filter(o => o.trim()).length >= 2) {
-                const pollData = {
-                    question: "Poll", // Basic placeholder or could be part of content
-                    options: pollOptions.filter(o => o.trim()),
-                    duration: pollDuration,
-                    endsAt: Date.now() + (pollDuration * 24 * 60 * 60 * 1000)
-                };
-                // Use Base64 to avoid regex issues with brackets in JSON
-                // btoa(unescape(encodeURIComponent(str))) handles UTF-8 correctly
-                const base64Data = btoa(unescape(encodeURIComponent(JSON.stringify(pollData))));
-                finalContent += `\n\n[poll:${base64Data}]`;
-            }
+                let finalContent = content;
+                let postRef = tempRef;
 
-            let uploadedMediaUrls: string[] = [];
-            
-            // Handle Media
-            if (mediaItems.length > 0) {
-                if (!supabase) {
-                    console.warn("Supabase client not initialized. Skipping upload.");
-                    // Check if any image is too large
-                    const largeItem = mediaItems.find(i => i.url.startsWith('data:') && i.url.length > 50000);
-                    if (largeItem) {
-                         throw new Error("Image storage is not configured (missing Supabase credentials) and image is too large for on-chain storage.");
-                    }
-                } else {
-                    const sb = supabase;
-                    // Wait for all uploads to complete and return the new URLs
-                    const processedItems = await Promise.all(mediaItems.map(async (item) => {
-                        let mediaUrl = item.url;
-                        
-                        // If it's a base64 string (starts with data:), try to upload it
-                        if (item.url.startsWith('data:')) {
-                            try {
-                                const fileName = `${postRef}/${uuidv4()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
-                                const contentType = item.type === 'video' ? 'video/mp4' : 'image/jpeg';
-                                
-                                // Upload via API to bypass RLS issues with anonymous client
-                                const uploadRes = await fetch('/api/upload', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        fileName,
-                                        fileData: item.url,
-                                        contentType
-                                    })
-                                });
+                // Append bounty tag if set
+                if (bountyAmount && !isNaN(parseFloat(bountyAmount)) && parseFloat(bountyAmount) > 0) {
+                    finalContent += `\n\n[bounty:${bountyAmount}]`;
+                }
+                
+                // Append Schedule
+                if (scheduledDate) {
+                    finalContent += `\n\n[schedule:${Math.floor(scheduledDate.getTime() / 1000)}]`;
+                }
 
-                                if (uploadRes.ok) {
-                                    const result = await uploadRes.json();
-                                    mediaUrl = result.publicUrl;
-                                } else {
-                                    console.warn("Upload failed via API, using base64 fallback");
+                // Append Poll Data
+                if (showPollUI && pollOptions.filter(o => o.trim()).length >= 2) {
+                    const pollData = {
+                        question: "Poll", 
+                        options: pollOptions.filter(o => o.trim()),
+                        duration: pollDuration,
+                        endsAt: Date.now() + (pollDuration * 24 * 60 * 60 * 1000)
+                    };
+                    const base64Data = btoa(unescape(encodeURIComponent(JSON.stringify(pollData))));
+                    finalContent += `\n\n[poll:${base64Data}]`;
+                }
+                
+                // Add ref tag if needed (and reuse tempRef)
+                if ((mediaItems.length > 0) && !postRef) {
+                    postRef = uuidv4();
+                }
+                if (postRef) {
+                    finalContent += `\n[ref:${postRef}]`;
+                }
+
+                let uploadedMediaUrls: string[] = [];
+                
+                // Handle Media
+                if (mediaItems.length > 0) {
+                    if (!supabase) {
+                        // Fallback logic
+                        const largeItem = mediaItems.find(i => i.url.startsWith('data:') && i.url.length > 50000);
+                        if (largeItem) throw new Error("Image too large for chain and no storage configured.");
+                    } else {
+                        const sb = supabase;
+                        const processedItems = await Promise.all(mediaItems.map(async (item) => {
+                            let mediaUrl = item.url;
+                            if (item.url.startsWith('data:')) {
+                                try {
+                                    const fileName = `${postRef}/${uuidv4()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+                                    const contentType = item.type === 'video' ? 'video/mp4' : 'image/jpeg';
+                                    
+                                    const uploadRes = await fetch('/api/upload', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            fileName,
+                                            fileData: item.url,
+                                            contentType
+                                        })
+                                    });
+
+                                    if (uploadRes.ok) {
+                                        const result = await uploadRes.json();
+                                        mediaUrl = result.publicUrl;
+                                    }
+                                } catch (e) {
+                                    console.error("Error processing media for upload", e);
                                 }
-                            } catch (e) {
-                                console.error("Error processing media for upload", e);
                             }
-                        }
-
-                        // Safety check: if fallback to base64 happens, ensure it's not too large for on-chain
-                        if (mediaUrl.startsWith('data:') && mediaUrl.length > 50000) {
-                             throw new Error("Image upload failed and file is too large for on-chain storage. Please try a smaller image.");
-                        }
-
-                        return {
-                            post_ref: postRef,
-                            url: mediaUrl,
-                            type: item.type
-                        };
-                    }));
-
-                    uploadedMediaUrls = processedItems.map(i => i.url);
-
-                    const { error: mediaError } = await sb
-                        .from('post_media')
-                        .insert(processedItems);
-                    
-                    if (mediaError) {
-                        console.error("Error uploading media:", mediaError);
+                            return {
+                                post_ref: postRef,
+                                url: mediaUrl,
+                                type: item.type
+                            };
+                        }));
+                        
+                        uploadedMediaUrls = processedItems.map(i => i.url);
+                        await sb.from('post_media').insert(processedItems);
                     }
                 }
+
+                // Pass first image as legacy image_url if available
+                const legacyImage = uploadedMediaUrls.length > 0 && mediaItems[0].type === 'image' 
+                    ? uploadedMediaUrls[0] 
+                    : (mediaItems.length > 0 && mediaItems[0].type === 'image' ? mediaItems[0].url : '');
+
+                const postId = await createPostOnChain(finalContent, legacyImage, 0, signAndSubmitTransaction);
+
+                if (postId !== null) {
+                    // Success
+                    window.dispatchEvent(new CustomEvent('post_success', { 
+                        detail: { 
+                            tempId, 
+                            finalId: postId,
+                            post: { ...optimisticPost, id: postId, status: 'success' }
+                        } 
+                    }));
+                    
+                    if (onPostCreated) onPostCreated(); // Just in case parent needs it
+
+                    // Mention notifications
+                    const mentions = extractMentions(finalContent);
+                    mentions.forEach(mention => {
+                        if ((mention.startsWith('0x') || mention.length > 20) && mention !== account?.address?.toString()) {
+                            sendSocialNotification(mention, {
+                                type: 'mention',
+                                actorAddress: account!.address.toString(),
+                                targetPostId: postId.toString(),
+                                targetPostContent: finalContent.substring(0, 100),
+                                content: finalContent.substring(0, 100)
+                            });
+                        }
+                    });
+                } else {
+                    throw new Error("Transaction failed or was rejected");
+                }
+
+            } catch (err: any) {
+                console.error(err);
+                const msg = err.message || t.errorCreatingPost;
+                
+                // Fail
+                window.dispatchEvent(new CustomEvent('post_fail', { 
+                    detail: { tempId, error: msg } 
+                }));
+
+                // Notify
+                // Since modal is closed, we must use a global notification mechanism or Toast.
+                // Assuming addNotification or similar is available in the context or we can't call hook here easily if component unmounted.
+                // But ComposeModal uses useNotifications? No, it doesn't seem to use it in imports.
+                // It uses local setError. But modal is closed.
+                // We should assume `window.dispatchEvent` handles the UI feedback in Feed.
+                console.error("Post creation failed asynchronously:", msg);
+            } finally {
+                setCreating(false);
             }
-
-            // Pass first image as legacy image_url if available
-            const legacyImage = uploadedMediaUrls.length > 0 && mediaItems[0].type === 'image' 
-                ? uploadedMediaUrls[0] 
-                : (mediaItems.length > 0 && mediaItems[0].type === 'image' ? mediaItems[0].url : '');
-
-            const postId = await createPostOnChain(finalContent, legacyImage, 0, signAndSubmitTransaction);
-
-            if (postId !== null) {
-                // Save to drafts? No, delete from drafts if it matches
-                // ...
-                setContent('');
-                setMediaItems([]);
-                setShowPollUI(false);
-                setPollOptions(['', '']);
-                if (onPostCreated) onPostCreated();
-                onClose();
-            } else {
-                throw new Error("Transaction failed or was rejected");
-            }
-
-        } catch (err: any) {
-            console.error(err);
-            if (err.name === 'WalletNotConnectedError' || err.message?.includes('WalletNotConnected')) {
-                setError("Wallet disconnected. Please reconnect your wallet to continue.");
-            } else {
-                setError(err.message || t.errorCreatingPost);
-            }
-        } finally {
-            setCreating(false);
-        }
+        })();
     };
 
     if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
-            <div className="bg-[var(--card-bg)] w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <div ref={modalRef} className="bg-[var(--card-bg)] w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--card-border)]">
                     <button onClick={onClose} className="p-2 hover:bg-[var(--hover-bg)] rounded-full transition-colors">
@@ -464,8 +622,12 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
                                             <div key={index} className="relative rounded-xl overflow-hidden border border-[var(--card-border)]">
                                                 {item.type === 'image' ? (
                                                     <img src={item.url} alt="preview" className="w-full h-full object-cover max-h-48" />
-                                                ) : (
+                                                ) : item.type === 'video' ? (
                                                     <video src={item.url} className="w-full h-full object-cover max-h-48" controls />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-[var(--bg-secondary)] min-h-[100px]">
+                                                         <audio src={item.url} controls className="w-full px-2" />
+                                                    </div>
                                                 )}
                                                 <button
                                                     onClick={() => removeMedia(index)}
@@ -602,8 +764,24 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
                                         setContent(prev => prev + emojiData.emoji);
                                         setShowEmojiPicker(false);
                                     }}
-                                    width={350}
+                                    width={300}
                                     height={400}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* GIF Picker Popover */}
+                    {showGifPicker && (
+                        <div className="absolute bottom-full left-10 mb-2 z-50">
+                            <div className="fixed inset-0 z-40" onClick={() => setShowGifPicker(false)}></div>
+                            <div className="relative z-50">
+                                <GifPicker
+                                    onSelect={(url) => {
+                                        setMediaItems(prev => [...prev, { url, type: 'image' }]);
+                                        setShowGifPicker(false);
+                                    }}
+                                    onClose={() => setShowGifPicker(false)}
                                 />
                             </div>
                         </div>
@@ -613,7 +791,7 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
                         <button onClick={() => fileInputRef.current?.click()} className="p-2 text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-full transition-colors" title="Media">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         </button>
-                        <button onClick={() => alert("GIF integration coming soon!")} className="p-2 text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-full transition-colors" title="GIF (Coming soon)">
+                        <button onClick={() => setShowGifPicker(!showGifPicker)} className={`p-2 ${showGifPicker ? 'bg-[var(--accent)]/20' : ''} text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-full transition-colors`} title="GIF">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                         </button>
                         <button onClick={() => setShowPollUI(!showPollUI)} className={`p-2 ${showPollUI ? 'bg-[var(--accent)]/20' : ''} text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-full transition-colors`} title="Poll">
@@ -621,6 +799,9 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
                         </button>
                         <button onClick={() => setShowBountyInput(!showBountyInput)} className={`p-2 ${showBountyInput ? 'bg-yellow-400/20' : ''} text-yellow-400 hover:bg-yellow-400/10 rounded-full transition-colors`} title="Attach Bounty">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
+                        </button>
+                        <button onClick={() => setShowScheduleModal(true)} className={`p-2 ${scheduledDate ? 'bg-blue-500/20' : ''} text-blue-500 hover:bg-blue-500/10 rounded-full transition-colors`} title="Schedule Post">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         </button>
                         <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className={`p-2 ${showEmojiPicker ? 'bg-[var(--accent)]/20' : ''} text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-full transition-colors`} title="Emoji">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -664,11 +845,20 @@ export default function ComposeModal({ isOpen, onClose, onPostCreated }: Compose
                     type="file"
                     ref={fileInputRef}
                     onChange={handleMediaSelect}
-                    accept="image/*,video/*"
+                    accept="image/*,video/*,audio/*"
                     multiple
                     className="hidden"
                 />
             </div>
+            
+            <CalendarModal 
+                isOpen={showScheduleModal} 
+                onClose={() => setShowScheduleModal(false)} 
+                onSchedule={(date) => {
+                    setScheduledDate(date);
+                    setShowScheduleModal(false);
+                }}
+            />
         </div>
     );
 }

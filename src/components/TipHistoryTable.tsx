@@ -76,7 +76,7 @@ export function TipHistoryTable({ creatorAddress }: TipHistoryTableProps) {
         <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
                 <table className="w-full">
-                    <thead className="bg-white/5 border-b border-white/10">
+                    <thead className="border-b border-white/10">
                         <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-white/70 uppercase tracking-wider">
                                 From

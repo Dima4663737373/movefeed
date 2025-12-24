@@ -1,0 +1,9 @@
+---
+profiles:
+  hello_deployer:
+    network: Custom
+    private_key: ed25519-priv-0x37cf19eb836985817173a97e482dddcaa03382df58fb5a527561cbfacc2677c4
+    public_key: ed25519-pub-0xbee45bea062b514e08c850b44680087531f9526a41590c5c822f31bb7f653031
+    account: d5002c5ac88d8db0e7bc8e047760c339d9ddd14ddb790e30a9b8ff7dc37c98be
+    rest_url: "https://testnet.movementnetwork.xyz/v1"
+    faucet_url: "https://faucet.testnet.movementnetwork.xyz/"

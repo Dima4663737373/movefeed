@@ -8,7 +8,7 @@
 
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { formatMovementAddress, MOVEMENT_CHAIN_ID } from '@/lib/movement';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { getBalance } from '@/lib/movementClient';
 import { useRouter } from 'next/router';
@@ -19,7 +19,56 @@ export function WalletConnectButton() {
     const { currentNetwork, switchNetwork, networkConfig } = useNetwork();
     const [showModal, setShowModal] = useState(false);
     const [balance, setBalance] = useState<number>(0);
+    const [displayBalance, setDisplayBalance] = useState<number>(0);
+    const [isHighlighting, setIsHighlighting] = useState(false);
+    const prevBalanceRef = useRef<number>(0);
+    const isFirstLoad = useRef(true);
     const router = useRouter();
+
+    // Balance Animation Effect
+    useEffect(() => {
+        // Handle initial load
+        if (isFirstLoad.current) {
+            if (balance > 0) {
+                setDisplayBalance(balance);
+                prevBalanceRef.current = balance;
+                isFirstLoad.current = false;
+            }
+            return;
+        }
+
+        if (balance !== prevBalanceRef.current) {
+            // Only animate/highlight if balance increased (received tip/funds)
+            if (balance > prevBalanceRef.current) {
+                 setIsHighlighting(true);
+                 setTimeout(() => setIsHighlighting(false), 2000); // 2s highlight
+            }
+            
+            // Animate number
+            const start = prevBalanceRef.current;
+            const end = balance;
+            const duration = 1500; // 1.5 second animation
+            const startTime = performance.now();
+
+            const animate = (currentTime: number) => {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                // Ease out expo
+                const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+                
+                const current = start + (end - start) * ease;
+                setDisplayBalance(current);
+
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                }
+            };
+            
+            requestAnimationFrame(animate);
+            prevBalanceRef.current = balance;
+        }
+    }, [balance]);
 
     // Helper to check if network is valid
     const isNetworkValid = () => {
@@ -192,10 +241,10 @@ export function WalletConnectButton() {
                 )}
 
                 {/* Balance Box */}
-                <div className="hidden md:flex flex-col items-end justify-center px-4 py-2 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl min-w-[120px]">
+                <div className={`hidden md:flex flex-col items-end justify-center px-4 py-2 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl min-w-[120px] transition-all duration-500 ${isHighlighting ? 'bg-[var(--accent)]/10 border-[var(--accent)]/50 shadow-[0_0_15px_rgba(250,204,21,0.3)]' : ''}`}>
                     <span className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider font-semibold mb-0.5">Balance</span>
-                    <span className="text-sm font-bold text-[var(--accent)]">
-                        {balance.toFixed(2)} MOVE
+                    <span className={`text-sm font-bold text-[var(--accent)] transition-transform duration-300 ${isHighlighting ? 'scale-110' : ''}`}>
+                        {displayBalance.toFixed(2)} MOVE
                     </span>
                 </div>
 
@@ -228,18 +277,9 @@ export function WalletConnectButton() {
     return (
         <div className="flex items-center gap-4">
             <div className="flex bg-[var(--card-bg)] rounded-full p-1 border border-[var(--card-border)]">
-                <button 
-                    onClick={() => switchNetwork('testnet')}
-                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${currentNetwork === 'testnet' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
-                >
+                <div className="px-3 py-1 bg-[var(--accent)] text-black text-xs font-bold rounded-full">
                     Testnet
-                </button>
-                <button 
-                    onClick={() => switchNetwork('mainnet')}
-                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${currentNetwork === 'mainnet' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
-                >
-                    Mainnet
-                </button>
+                </div>
             </div>
 
             <button

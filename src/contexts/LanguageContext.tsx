@@ -8,6 +8,7 @@ interface Translations {
     explore: string;
     chat: string;
     bookmarks: string;
+    savedMessages: string;
     bookmark: string;
     settings: string;
     profile: string;
@@ -36,6 +37,12 @@ interface Translations {
     notifyTipsDesc: string;
     notifyErrors: string;
     notifyErrorsDesc: string;
+    whoCanMessage: string;
+    whoCanMessageDesc: string;
+    everyone: string;
+    followersOnly: string;
+    movementScan: string;
+    aptosScan: string;
     soundEffects: string;
     soundDesc: string;
     general: string;
@@ -47,6 +54,7 @@ interface Translations {
     
     // Common
     loading: string;
+    processing: string;
     error: string;
     follow: string;
     unfollow: string;
@@ -62,12 +70,24 @@ interface Translations {
     trending: string;
     whoToFollow: string;
     showMore: string;
+    moreOptions: string;
     edit: string;
     delete: string;
     cancel: string;
+    blockConfirm: string;
     share: string;
     tip: string;
 
+    // Notifications Page
+    notificationsTitle: string;
+    all: string;
+    mentions: string;
+    comments: string;
+    follows: string;
+    reposts: string;
+    noActivity: string;
+    markAllRead: string;
+    
     // Notifications Component
     clearAll: string;
     noNotifications: string;
@@ -111,6 +131,12 @@ interface Translations {
     // Profile
     editProfile: string;
     saveProfile: string;
+    createProfile: string;
+    displayName: string;
+    bio: string;
+    avatarUrl: string;
+    website: string;
+    location: string;
     displayNamePlaceholder: string;
     bioPlaceholder: string;
     locationPlaceholder: string;
@@ -122,9 +148,14 @@ interface Translations {
     tipsSent: string;
     noPostsTitle: string;
     noPostsDesc: string;
+    noFeedTitle: string;
+    noFeedDesc: string;
     copyAddress: string;
     profileUpdated: string;
     profileUpdateError: string;
+    profileCreated: string;
+    usernameRequired: string;
+    usernameTaken: string;
     imageTooLarge: string;
     imageTooLarge5MB: string;
 
@@ -132,7 +163,6 @@ interface Translations {
     activity: string;
     clearActivity: string;
     clearActivityConfirm: string;
-    all: string;
     sent: string;
     received: string;
     noTips: string;
@@ -164,6 +194,14 @@ interface Translations {
     postDeleted: string;
     postDeleteError: string;
     
+    // Post Actions
+    notInterested: string;
+    mute: string;
+    block: string;
+    unmute: string;
+    unblock: string;
+    report: string;
+    
     // Actions
     connectWallet: string;
     voteError: string;
@@ -172,6 +210,11 @@ interface Translations {
     changeImage: string;
     addImage: string;
     remove: string;
+    unfollowed: string;
+    undoSuccess: string;
+    undo: string;
+    postHidden: string;
+    success: string;
 
     // Search
     searchPlaceholder: string;
@@ -211,6 +254,12 @@ interface Translations {
     postNotFound: string;
     returnToFeed: string;
     viewAllComments: string;
+
+    // Challenges
+    acceptChallenge: string;
+    inProgress: string;
+    claimReward: string;
+    completed: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -219,6 +268,7 @@ const translations: Record<Language, Translations> = {
         explore: 'Explore',
         chat: 'Chat',
         bookmarks: 'Bookmarks',
+        savedMessages: 'Saved Messages',
         bookmark: 'Bookmark',
         settings: 'Settings',
         profile: 'Profile',
@@ -246,6 +296,12 @@ const translations: Record<Language, Translations> = {
         notifyTipsDesc: 'Get notified when you receive MOVE',
         notifyErrors: 'Transaction Errors',
         notifyErrorsDesc: 'Get notified when a transaction fails',
+        whoCanMessage: 'Who can message you?',
+        whoCanMessageDesc: 'Control who can start a direct conversation with you.',
+        everyone: 'Everyone',
+        followersOnly: 'Followers Only',
+        movementScan: 'Movement Scan (Official)',
+        aptosScan: 'Aptos Scan',
         soundEffects: 'Sound Effects',
         soundDesc: 'Play sounds for interactions',
         general: 'General',
@@ -256,6 +312,7 @@ const translations: Record<Language, Translations> = {
         settingsSaveError: 'Failed to save settings',
         
         loading: 'Loading...',
+        processing: 'Processing...',
         error: 'Error',
         follow: 'Follow',
         unfollow: 'Unfollow',
@@ -271,12 +328,25 @@ const translations: Record<Language, Translations> = {
         trending: 'Trending',
         whoToFollow: 'Who to follow',
         showMore: 'Show more',
+        moreOptions: 'More options',
         edit: 'Edit',
         delete: 'Delete',
         cancel: 'Cancel',
+        blockConfirm: 'Are you sure you want to block this user?',
         share: 'Share',
         tip: 'Tip',
 
+        // Notifications Page
+        notificationsTitle: 'Notifications',
+        all: 'All',
+        mentions: 'Mentions',
+        comments: 'Comments',
+        follows: 'New followers',
+        reposts: 'Reposts/Quotes',
+        noActivity: 'No notifications yet',
+        markAllRead: 'Mark all as read',
+
+        // Notifications Component
         clearAll: 'Clear all',
         noNotifications: 'No notifications yet',
 
@@ -317,6 +387,12 @@ const translations: Record<Language, Translations> = {
         
         editProfile: 'Edit Profile',
         saveProfile: 'Save Profile',
+        createProfile: 'Create Profile',
+        displayName: 'Display Name',
+        bio: 'Bio',
+        avatarUrl: 'Avatar URL',
+        website: 'Website',
+        location: 'Location',
         displayNamePlaceholder: 'Display Name',
         bioPlaceholder: 'Bio',
         locationPlaceholder: 'Location',
@@ -328,16 +404,20 @@ const translations: Record<Language, Translations> = {
         tipsSent: 'Tips Sent',
         noPostsTitle: 'No Posts Yet',
         noPostsDesc: "This user hasn't posted anything yet.",
+        noFeedTitle: 'No Posts Yet',
+        noFeedDesc: 'Be the first to post something!',
         copyAddress: 'Copy Address',
         profileUpdated: 'Profile updated successfully!',
         profileUpdateError: 'Failed to update profile. Please try again.',
+        profileCreated: 'Profile created successfully!',
+        usernameRequired: 'Username is required',
+        usernameTaken: 'Username is already taken',
         imageTooLarge: 'Image too large for on-chain storage. Please try a smaller image.',
         imageTooLarge5MB: 'Image too large (max 5MB)',
 
         activity: 'Activity',
         clearActivity: 'Clear Activity',
         clearActivityConfirm: 'Clear your entire activity history? This will hide received tips and delete local sent history.',
-        all: 'All',
         sent: 'Sent',
         received: 'Received',
         noTips: 'No tips yet',
@@ -376,8 +456,13 @@ const translations: Record<Language, Translations> = {
         changeImage: 'Change Image',
         addImage: 'Add Image',
         remove: 'Remove',
+        unfollowed: 'Unfollowed successfully',
+        undoSuccess: 'Undone',
+        undo: 'Undo',
+        postHidden: "Post hidden. Use 'Mute' to hide posts from this user.",
+        success: 'Success',
 
-        searchPlaceholder: 'Search MoveFeed',
+        searchPlaceholder: 'Search MoveX',
         people: 'People',
         noResults: 'No results found for',
 
@@ -402,22 +487,36 @@ const translations: Record<Language, Translations> = {
         onChainTipsDesc: 'Receive tips directly to your wallet, secured on Movement Network',
         movementNetwork: 'Movement Network',
         movementNetworkDesc: "Built on Movement's fast and secure blockchain infrastructure",
-        aboutTitle: 'About MoveFeed',
-        aboutDesc1: 'MoveFeed is a new kind of social platform that puts creators first. Share your thoughts, build your audience, and earn on-chain tips from supporters who value your content.',
+        aboutTitle: 'About MoveX',
+        aboutDesc1: 'MoveX is a new kind of social platform that puts creators first. Share your thoughts, build your audience, and earn on-chain tips from supporters who value your content.',
         aboutDesc2: 'Built on Movement Network, every tip is secured on-chain, giving you full control and transparency over your earnings. No intermediaries, no hidden fees—just direct support from your community.',
         movementDocs: 'Movement Docs',
         explorer: 'Explorer',
-
+// Single Post
         postNotFound: 'Post not found.',
         returnToFeed: 'Return to Feed',
-        viewAllComments: 'View all comments'
+        viewAllComments: 'View all comments',
+
+        // Post Actions
+        notInterested: "Not interested in this",
+        mute: "Mute",
+        block: "Block",
+        unmute: "Unmute",
+        unblock: "Unblock",
+        report: "Report",
+
+        acceptChallenge: 'Accept Challenge',
+        inProgress: 'In Progress',
+        claimReward: 'Claim Reward',
+        completed: 'Completed'
     },
     ua: {
         feed: 'Стрічка',
         explore: 'Огляд',
-        chat: 'Чат',
+        chat: 'Повідомлення',
         bookmarks: 'Закладки',
-        bookmark: 'В закладки',
+        savedMessages: 'Збережене',
+        bookmark: 'Закладка',
         settings: 'Налаштування',
         profile: 'Профіль',
         post: 'Опублікувати',
@@ -444,6 +543,12 @@ const translations: Record<Language, Translations> = {
         notifyTipsDesc: 'Сповіщення про отримання MOVE',
         notifyErrors: 'Помилки транзакцій',
         notifyErrorsDesc: 'Сповіщення про невдалі транзакції',
+        whoCanMessage: 'Хто може писати вам?',
+        whoCanMessageDesc: 'Керуйте тим, хто може почати з вами пряму розмову.',
+        everyone: 'Усі',
+        followersOnly: 'Тільки підписники',
+        movementScan: 'Movement Scan (Офіційний)',
+        aptosScan: 'Aptos Scan',
         soundEffects: 'Звукові ефекти',
         soundDesc: 'Відтворювати звуки при взаємодії',
         general: 'Загальні',
@@ -454,6 +559,7 @@ const translations: Record<Language, Translations> = {
         settingsSaveError: 'Не вдалося зберегти налаштування',
         
         loading: 'Завантаження...',
+        processing: 'Обробка...',
         error: 'Помилка',
         follow: 'Стежити',
         unfollow: 'Не стежити',
@@ -469,12 +575,25 @@ const translations: Record<Language, Translations> = {
         trending: 'Актуальне',
         whoToFollow: 'Кого читати',
         showMore: 'Показати більше',
+        moreOptions: 'Більше опцій',
         edit: 'Редагувати',
         delete: 'Видалити',
         cancel: 'Скасувати',
+        blockConfirm: 'Ви впевнені, що хочете заблокувати цього користувача?',
         share: 'Поділитися',
         tip: 'Підтримати',
 
+        // Notifications Page
+        notificationsTitle: 'Сповіщення',
+        all: 'Всі',
+        mentions: 'Згадування',
+        comments: 'Коментарі',
+        follows: 'Нові підписники',
+        reposts: 'Репости/Квоти',
+        noActivity: 'Сповіщень поки немає',
+        markAllRead: 'Позначити всі як прочитані',
+
+        // Notifications Component
         clearAll: 'Очистити все',
         noNotifications: 'Поки немає сповіщень',
 
@@ -515,7 +634,13 @@ const translations: Record<Language, Translations> = {
 
         editProfile: 'Редагувати профіль',
         saveProfile: 'Зберегти профіль',
-        displayNamePlaceholder: 'Ім\'я відображення',
+        createProfile: 'Створити профіль',
+        displayName: "Відображуване ім'я",
+        bio: 'Про себе',
+        avatarUrl: 'URL аватара',
+        website: 'Веб-сайт',
+        location: 'Місцезнаходження',
+        displayNamePlaceholder: "Відображуване ім'я",
         bioPlaceholder: 'Про себе',
         locationPlaceholder: 'Місцезнаходження',
         websitePlaceholder: 'Веб-сайт',
@@ -526,16 +651,20 @@ const translations: Record<Language, Translations> = {
         tipsSent: 'Надіслані чайові',
         noPostsTitle: 'Поки немає постів',
         noPostsDesc: 'Цей користувач ще нічого не опублікував.',
+        noFeedTitle: 'Поки немає постів',
+        noFeedDesc: 'Будьте першим, хто щось опублікує!',
         copyAddress: 'Копіювати адресу',
         profileUpdated: 'Профіль оновлено!',
         profileUpdateError: 'Не вдалося оновити профіль. Спробуйте ще раз.',
+        profileCreated: 'Профіль створено успішно!',
+        usernameRequired: "Ім'я користувача обов'язкове",
+        usernameTaken: "Це ім'я користувача вже зайняте",
         imageTooLarge: 'Зображення занадто велике для зберігання в блокчейні. Спробуйте менше.',
         imageTooLarge5MB: 'Зображення занадто велике (макс 5MB)',
 
         activity: 'Активність',
         clearActivity: 'Очистити активність',
         clearActivityConfirm: 'Очистити всю історію активності? Це приховає отримані чайові та видалить локальну історію надісланих.',
-        all: 'Всі',
         sent: 'Надіслані',
         received: 'Отримані',
         noTips: 'Поки немає чайових',
@@ -575,7 +704,7 @@ const translations: Record<Language, Translations> = {
         addImage: 'Додати зображення',
         remove: 'Видалити',
 
-        searchPlaceholder: 'Пошук MoveFeed',
+        searchPlaceholder: 'Пошук MoveX',
         people: 'Люди',
         noResults: 'Нічого не знайдено за запитом',
 
@@ -600,7 +729,7 @@ const translations: Record<Language, Translations> = {
         onChainTipsDesc: 'Отримуйте чайові прямо на гаманець, захищені мережею Movement',
         movementNetwork: 'Мережа Movement',
         movementNetworkDesc: 'Побудовано на швидкій та безпечній інфраструктурі блокчейну Movement',
-        aboutTitle: 'Про MoveFeed',
+        aboutTitle: 'Про MoveX',
         aboutDesc1: 'MoveFeed — це новий вид соціальної платформи, де автори на першому місці. Діліться думками, будуйте аудиторію та отримуйте чайові від прихильників, які цінують ваш контент.',
         aboutDesc2: 'Завдяки мережі Movement, кожен переказ захищений ончейн, що дає вам повний контроль та прозорість доходів. Жодних посередників, жодних прихованих комісій — лише пряма підтримка від вашої спільноти.',
         movementDocs: 'Документація Movement',
@@ -608,7 +737,25 @@ const translations: Record<Language, Translations> = {
 
         postNotFound: 'Пост не знайдено.',
         returnToFeed: 'Повернутися до стрічки',
-        viewAllComments: 'Переглянути всі коментарі'
+        viewAllComments: 'Переглянути всі коментарі',
+
+        acceptChallenge: 'Прийняти виклик',
+        inProgress: 'В процесі',
+        claimReward: 'Забрати нагороду',
+        completed: 'Завершено',
+
+        // Post Actions
+        notInterested: "Не цікаво",
+        mute: "Ігнорувати",
+        block: "Заблокувати",
+        unmute: "Не ігнорувати",
+        unblock: "Розблокувати",
+        report: "Поскаржитися",
+        unfollowed: 'Відписано успішно',
+        undoSuccess: 'Скасовано',
+        undo: 'Скасувати',
+        postHidden: "Пост приховано. Використовуйте 'Ігнорувати', щоб приховати пости цього користувача.",
+        success: 'Успішно',
     }
 };
 

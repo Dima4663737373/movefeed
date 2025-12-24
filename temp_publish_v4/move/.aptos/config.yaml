@@ -1,0 +1,41 @@
+---
+profiles:
+  default:
+    network: Custom
+    private_key: ed25519-priv-0xbf532c0bbf1d564cd5e5c7a72d636b0012308aec3b9412b4b959324565345739
+    public_key: ed25519-pub-0x35f8671510317d420ab5f1dd35f509a5f5164da1b2b479f563699f149d67df29
+    account: 7e218b2d60d7415e97d11aa67841f2b93948b78060eedb102fb0bf118efad0e4
+    rest_url: "https://testnet.movementnetwork.xyz/v1"
+  mines:
+    network: Custom
+    private_key: ed25519-priv-0x09a39471641ec93a327339d2e9f7e9823f167267919971dda2cec8c407519e4a
+    public_key: ed25519-pub-0xb77188f1d0ebfa72f5a9355140b971be14c016afcf12a4e38cdd8bb46ba57e92
+    account: 8ee9550b71f7cde3782e20e958224983c628e4f6ad52f15856c56f03f869e1fc
+    rest_url: "https://testnet.movementnetwork.xyz/v1"
+    faucet_url: "https://faucet.testnet.movementnetwork.xyz"
+  mines_v2:
+    network: Custom
+    private_key: ed25519-priv-0x523af29e7f5817685ff5600b2dbc553488e9afa6b5c4b1abeb8772fd53d9ee9b
+    public_key: ed25519-pub-0xa8bff03200da669258edebec6a7fb391fd49c1884d08d77e217581868eb7bcc3
+    account: 6c524fbcbd0a533931c3163faa6f4777334007289b2d90bd8a07090a083ec5cb
+    rest_url: "https://testnet.movementnetwork.xyz/v1"
+    faucet_url: "https://faucet.testnet.movementnetwork.xyz/"
+  mines_v3:
+    network: Custom
+    private_key: ed25519-priv-0x37cf19eb836985817173a97e482dddcaa03382df58fb5a527561cbfacc2677c4
+    public_key: ed25519-pub-0xbee45bea062b514e08c850b44680087531f9526a41590c5c822f31bb7f653031
+    account: d5002c5ac88d8db0e7bc8e047760c339d9ddd14ddb790e30a9b8ff7dc37c98be
+    rest_url: "https://testnet.movementnetwork.xyz/v1"
+    faucet_url: "https://faucet.testnet.movementnetwork.xyz/"
+  movement-mainnet:
+    network: Custom
+    private_key: ed25519-priv-0xf17a351a44abc767e81908339b89bdaef46f21e8cfa91cb70963d73c7156e841
+    public_key: ed25519-pub-0xb59750d4ce30d76bc52dadd5577dbb1667c3be83b6c797be2a447325acca6782
+    account: 9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204
+    rest_url: "https://mainnet.movementnetwork.xyz/v1"
+  movement-new:
+    network: Custom
+    private_key: ed25519-priv-0xf79c0b1632ab7677a2567018b7570e1e3876bc5baaf9fbea304c4c634aa85733
+    public_key: ed25519-pub-0x0938574ed32d9e322cb724e69d23568384f3476c4cb5670934804dc2127a6f6d
+    account: 87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb
+    rest_url: "https://testnet.movementnetwork.xyz/v1"

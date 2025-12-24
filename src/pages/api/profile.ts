@@ -4,9 +4,15 @@ import { verifySignature, formatPublicKey } from '@/lib/verify';
 import { Ed25519PublicKey, AccountAddress, AuthenticationKey } from "@aptos-labs/ts-sdk";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+    // Graceful fallback if Supabase is not configured
     if (!supabaseAdmin) {
-        console.error("Supabase Admin client not initialized. Check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
-        return res.status(500).json({ error: 'Supabase Admin client not initialized' });
+        if (req.method === 'GET') {
+            console.warn("Supabase Admin not initialized. Returning empty profile.");
+            return res.status(200).json({});
+        } else {
+            console.error("Supabase Admin client not initialized. Check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+            return res.status(503).json({ error: 'Profile storage service unavailable' });
+        }
     }
 
     const { method } = req;
@@ -33,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (method === 'POST') {
-        const { wallet_address, bio, website, location, banner_url, signature, message, publicKey } = req.body;
+        const { wallet_address, display_name, bio, website, location, banner_url, joined_date_visibility, signature, message, publicKey } = req.body;
 
         if (!wallet_address) {
             return res.status(400).json({ error: 'Missing wallet_address' });
@@ -90,19 +96,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(401).json({ error: `Authentication failed: ${e?.message || e}` });
         }
 
-        const updates = {
+        const updates: any = {
             wallet_address: wallet_address.toLowerCase(),
+            // display_name, // Removed due to schema mismatch error (column missing)
             bio,
             website,
             location,
             banner_url,
+            // joined_date_visibility, // Removed due to schema mismatch error
             updated_at: new Date().toISOString()
         };
+
+        // Only add display_name if it's not null/undefined, but we commented it out to fix 500 error
+        // If the column is added later, we can uncomment it.
+        // Or we can try to conditionally add it if we knew the schema.
+
 
         const { data, error } = await supabaseAdmin
             .from('profiles')
             .upsert(updates)
-            .select()
+            .select('wallet_address, bio, website, location, banner_url, created_at, updated_at')
             .single();
 
         if (error) {

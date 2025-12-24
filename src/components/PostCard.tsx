@@ -19,15 +19,20 @@ import { useNotifications } from '@/components/Notifications';
 import { supabase } from '@/lib/supabaseClient';
 import { parseText } from '@/utils/textUtils';
 import { CreatePostForm } from '@/components/CreatePostForm';
+import TipFeedback from '@/components/TipFeedback';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNetwork } from '@/contexts/NetworkContext';
+import { sendSocialNotification } from '@/contexts/SocialActivityContext';
+import MiniAppRenderer from '@/components/MiniAppRenderer';
 import { v4 as uuidv4 } from 'uuid';
 
 interface PostMedia {
     id: string;
     url: string;
-    type: 'image' | 'video';
+    type: 'image' | 'video' | 'audio';
 }
+
+import { AudioPlayer } from './AudioPlayer';
 
 interface PostCardProps {
     post: {
@@ -43,15 +48,20 @@ interface PostCardProps {
         createdAt: number;
         updatedAt?: number;
         commentCount?: number;
+        status?: 'pending' | 'success' | 'fail';
     };
     isOwner?: boolean;
     showTipButton?: boolean;
     initialIsBookmarked?: boolean;
     hideComments?: boolean;
     compact?: boolean;
+    previewCount?: number;
+    highlight?: string;
 }
 
-export default function PostCard({ post, isOwner, showTipButton = true, initialIsBookmarked = false, hideComments = false, compact = false }: PostCardProps) {
+import TipStatsModal from './TipStatsModal';
+
+export default function PostCard({ post, isOwner, showTipButton = true, initialIsBookmarked = false, hideComments = false, compact = false, previewCount = 3, highlight }: PostCardProps) {
     const router = useRouter();
     const { account, signAndSubmitTransaction, signMessage, network } = useWallet();
     const { sendTip } = useMovementTransaction();
@@ -63,6 +73,8 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
     const [tipping, setTipping] = useState(false);
     const [tipAmount, setTipAmount] = useState('1');
     const [showTipInput, setShowTipInput] = useState(false);
+    const [showFeedback, setShowFeedback] = useState(false);
+    const [showTipStats, setShowTipStats] = useState(false);
     const [votes, setVotes] = useState({ up: 0, down: 0 });
 
     useEffect(() => {
@@ -104,9 +116,26 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         if (!account) return;
         setIsReposting(true);
         setShowRepostOptions(false);
+        
+        const postRef = uuidv4();
+
+        const tempId = `temp-repost-${Date.now()}`;
+        const optimisticPost = {
+            id: tempId,
+            global_id: 0,
+            creatorAddress: account.address.toString(),
+            creatorHandle: account.ansName || undefined,
+            content: `[ref:${postRef}]`,
+            image_url: '',
+            style: 0,
+            totalTips: 0,
+            createdAt: Date.now() / 1000,
+            status: 'pending' as const
+        };
+        window.dispatchEvent(new CustomEvent('post_pending', { detail: optimisticPost }));
+        addNotification("Reposting...", "info", { persist: false });
+
         try {
-            const postRef = uuidv4();
-            
             // 1. Insert Metadata
             if (supabase) {
                 await supabase.from('post_metadata').insert({
@@ -117,17 +146,42 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
             }
             
             // 2. Create Post on Chain
-            await createPostOnChain(
+            const newPostId = await createPostOnChain(
                 `[ref:${postRef}]`, 
                 '', 
                 0, 
                 signAndSubmitTransaction
             );
             
-            addNotification(t.postCreatedSuccess, "success", { persist: false });
+            if (newPostId !== null) {
+                window.dispatchEvent(new CustomEvent('post_success', { 
+                    detail: { 
+                        tempId, 
+                        finalId: newPostId,
+                        post: { ...optimisticPost, id: newPostId, status: 'success' }
+                    } 
+                }));
+                addNotification(t.postCreatedSuccess, "success", { persist: false });
+
+                // Notify original author
+                if (post.creatorAddress !== account.address.toString()) {
+                    sendSocialNotification(post.creatorAddress, {
+                        type: 'repost',
+                        actorAddress: account.address.toString(),
+                        targetPostId: post.id,
+                        targetPostContent: post.content.substring(0, 100)
+                    });
+                }
+            } else {
+                 throw new Error("Transaction failed");
+            }
+            
             window.dispatchEvent(new Event('tip_sent')); // Refresh feed
         } catch (error) {
             console.error("Repost failed", error);
+            window.dispatchEvent(new CustomEvent('post_fail', { 
+                detail: { tempId, error: (error as Error).message } 
+            }));
             addNotification(t.postCreationError, "error", { persist: true });
         } finally {
             setIsReposting(false);
@@ -159,9 +213,11 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
     // Local post state for optimistic updates
     const [localPost, setLocalPost] = useState(post);
     const [viewCount, setViewCount] = useState(0);
+    const [localTotalTips, setLocalTotalTips] = useState(typeof post.totalTips === 'number' ? post.totalTips : parseFloat(post.totalTips as string));
 
     useEffect(() => {
         setLocalPost(post);
+        setLocalTotalTips(typeof post.totalTips === 'number' ? post.totalTips : parseFloat(post.totalTips as string));
     }, [post]);
 
     // Extract special features
@@ -192,15 +248,35 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         }
     }, [localPost.content]);
 
+    const miniAppData = useMemo(() => {
+        const match = localPost.content.match(/\[app:(https?:\/\/[^\]]+)\]/);
+        if (!match) return null;
+        return match[1];
+    }, [localPost.content]);
+
+    // Helper to highlight text
+    const highlightText = (text: string, query?: string) => {
+        if (!query || !text) return text;
+        // Escape special regex characters in query
+        const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const parts = text.split(new RegExp(`(${escapedQuery})`, 'gi'));
+        return parts.map((part, i) => 
+            part.toLowerCase() === query.toLowerCase() 
+                ? <mark key={i} className="bg-[var(--accent)] text-[var(--btn-text-primary)] rounded-sm px-0.5 font-medium">{part}</mark> 
+                : part
+        );
+    };
+
     // Helper to format content with clickable links and hashtags
     const formatContentWithLinks = (text: string) => {
         if (!text) return null;
         
-        // Strip ref tag, bounty tag, and poll tag
+        // Strip ref tag, bounty tag, poll tag, and app tag
         const cleanText = text
             .replace(/\[ref:[a-f0-9\-]+\]/g, '')
             .replace(/\[bounty:[\d.]+\]/g, '')
             .replace(/\[poll:.*?\]/g, '')
+            .replace(/\[app:.*?\]/g, '')
             .trim();
             
         if (!cleanText) return null;
@@ -218,7 +294,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                         className="text-[var(--accent)] hover:underline break-all relative z-10 cursor-pointer"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {segment.content}
+                        {highlightText(segment.content, highlight)}
                     </a>
                 );
             } else if (segment.type === 'hashtag') {
@@ -229,36 +305,70 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                         className="text-[var(--accent)] hover:underline relative z-10 cursor-pointer"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        #{segment.content}
+                        #{highlightText(segment.content, highlight)}
+                    </Link>
+                );
+            } else if (segment.type === 'cashtag') {
+                return (
+                    <Link 
+                        key={index}
+                        href={`/cashtag/${segment.content}`}
+                        className="text-[var(--accent)] hover:underline relative z-10 cursor-pointer"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        ${highlightText(segment.content, highlight)}
                     </Link>
                 );
             } else {
-                return <span key={index}>{segment.content}</span>;
+                return <span key={index}>{highlightText(segment.content, highlight)}</span>;
             }
         });
     };
 
-    // Fetch and increment views
+    // View Counting Logic
+    const viewedIdsRef = useRef(new Set<string>());
+
     useEffect(() => {
         let mounted = true;
 
         const handleViews = async () => {
+            // Strict check: Don't count views for pending, optimistic, or temporary posts
+            // Also verify we have a valid numeric ID (unless it's a legacy string ID, but we prefer numeric for DB)
+            if (!post.id || 
+                post.status === 'pending' || 
+                post.id.toString().startsWith('temp-') || 
+                post.id.toString().startsWith('pending-')) {
+                return;
+            }
+
             try {
-                // If detailed view (comments not hidden), increment view count
-                // Use localStorage to prevent duplicate counts per browser (persistent)
+                // Generate a stable key for local storage
+                const viewedKey = `viewed_${post.id}`;
+
+                // Only increment if not hidden (feed view) and not already viewed
                 if (!hideComments) {
-                    const viewedKey = `viewed_${post.id}`;
-                    // Check localStorage first (more persistent than sessionStorage)
-                    if (!localStorage.getItem(viewedKey)) {
-                        await fetch('/api/views', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                postId: post.id,
-                                viewerAddress: account?.address?.toString() 
-                            })
-                        });
-                        localStorage.setItem(viewedKey, 'true');
+                    // Check session ref (fastest, per component instance)
+                    if (!viewedIdsRef.current.has(viewedKey)) {
+                        viewedIdsRef.current.add(viewedKey);
+
+                        // Check localStorage (persistent across reloads/sessions)
+                        const alreadyViewed = localStorage.getItem(viewedKey);
+                        
+                        if (!alreadyViewed) {
+                            // Mark as viewed immediately
+                            localStorage.setItem(viewedKey, 'true');
+                            
+                            // Send to backend
+                            // Note: We don't await this to avoid blocking UI, but we catch errors
+                            fetch('/api/views', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ 
+                                    postId: post.id,
+                                    viewerAddress: account?.address?.toString() 
+                                })
+                            }).catch(e => console.error("Failed to register view", e));
+                        }
                     }
                 }
 
@@ -266,7 +376,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                 const res = await fetch(`/api/views?postId=${post.id}`);
                 if (res.ok && mounted) {
                     const data = await res.json();
-                    setViewCount(data.viewCount);
+                    setViewCount(data.viewCount || 0);
                 }
             } catch (e) {
                 console.error("Error handling views:", e);
@@ -276,7 +386,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         handleViews();
 
         return () => { mounted = false; };
-    }, [post.id, hideComments, account?.address]);
+    }, [post.id, hideComments, account?.address, post.status]);
 
     useEffect(() => {
         const fetchMediaAndMetadata = async () => {
@@ -305,8 +415,13 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                     if (metaData && metaData.repost_of) {
                         setIsLoadingRepost(true);
                         try {
-                            const originalPost = await getPost(parseInt(metaData.repost_of));
-                            setRepostedPost(originalPost);
+                            const repostId = parseInt(metaData.repost_of);
+                            if (!isNaN(repostId)) {
+                                const originalPost = await getPost(repostId);
+                                setRepostedPost(originalPost);
+                            } else {
+                                console.warn("Invalid repost ID:", metaData.repost_of);
+                            }
                         } catch (e) {
                             console.error("Failed to fetch reposted post", e);
                         } finally {
@@ -324,6 +439,10 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
     }, [post.content]);
     
     useEffect(() => {
+        // Reset state when post ID changes to prevent "phantom" data from previous reused component
+        setVotes({ up: 0, down: 0 });
+        setUserVote(null);
+
         const fetchProfile = async () => {
             try {
                 // Sync from props if available
@@ -347,6 +466,9 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         };
 
         const fetchVotes = async () => {
+            // Strict check for valid post ID to prevent "phantom" votes on undefined/null IDs
+            if (!post.id || post.id === 'undefined' || post.id === 'null') return;
+
             try {
                 const queryParams = new URLSearchParams({
                     postId: post.id,
@@ -361,7 +483,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                     const data = await res.json();
                     if (data) {
                         setVotes({ up: data.up || 0, down: data.down || 0 });
-                        setUserVote(data.userVote);
+                        setUserVote(data.userVote || null);
                     }
                 }
             } catch (e) {
@@ -372,6 +494,88 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         fetchProfile();
         fetchVotes();
     }, [post.id, post.creatorAddress, post.creatorHandle, post.creatorAvatar, account?.address]);
+
+    // Interaction state
+    const [isHidden, setIsHidden] = useState(false);
+    const [showMoreOptions, setShowMoreOptions] = useState(false);
+
+    const handleInteraction = async (action: 'not_interested' | 'mute' | 'block' | 'unfollow', isUndo = false) => {
+        if (!account) {
+            addNotification(t.connectWallet, "error");
+            return;
+        }
+
+        // Confirm for severe actions
+        if (action === 'block' && !isUndo && !confirm(t.blockConfirm || "Are you sure you want to block this user?")) return;
+
+        try {
+            // Optimistic updates
+            if (action === 'not_interested') {
+                setIsHidden(!isUndo);
+                // We don't show "Processing" for this, just hide it immediately
+            } else if (action === 'mute' || action === 'block') {
+                setIsHidden(!isUndo);
+                addNotification(t.processing || "Processing...", "info", { persist: false, duration: 1000 });
+            }
+
+            if (action === 'unfollow') {
+                const res = await fetch('/api/follow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userAddress: account.address.toString(),
+                        targetAddress: post.creatorAddress
+                    })
+                });
+                
+                if (!res.ok) throw new Error("Unfollow failed");
+                
+                const data = await res.json();
+                if (!data.isFollowing) {
+                    addNotification(t.unfollowed || "Unfollowed successfully", "success");
+                    window.dispatchEvent(new Event('follow_update'));
+                } else {
+                     // If we tried to unfollow but ended up following (toggle), this is unexpected for "unfollow" action
+                     // But acceptable for now
+                     addNotification(t.following || "Following", "success");
+                }
+                return;
+            }
+
+            const res = await fetch('/api/interactions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userAddress: account.address.toString(),
+                    targetAddress: post.creatorAddress,
+                    postId: post.id,
+                    type: action
+                })
+            });
+
+            if (!res.ok) throw new Error("Action failed");
+
+            const data = await res.json();
+            // Dispatch update so Feed can filter
+            window.dispatchEvent(new Event('interaction_update'));
+            
+            if (isUndo) {
+                 addNotification(t.undoSuccess || "Undone", "success");
+            } else {
+                 if (action === 'not_interested') {
+                     addNotification(t.postHidden || "Post hidden. Use 'Mute' to hide posts from this user.", "success");
+                 } else {
+                     addNotification(t.success || "Success", "success");
+                 }
+            }
+
+        } catch (e) {
+            console.error("Interaction error:", e);
+            addNotification(t.error || "Action failed", "error");
+            if (!isUndo) setIsHidden(false); // Revert hide if failed
+            else setIsHidden(true); // Revert undo if failed
+        }
+    };
 
     // Check bookmark status
     useEffect(() => {
@@ -429,11 +633,19 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         
         const fetchComments = async () => {
             if (!post.id) return;
+            const postId = parseInt(post.id);
+            if (isNaN(postId)) {
+                // Silence warning for optimistic/pending posts
+                if (!post.id.toString().startsWith('pending-')) {
+                    console.warn("Invalid post ID for comments:", post.id);
+                }
+                return;
+            }
             try {
                 setLoadingComments(true);
                 // Don't fetch comments for comments (nested) to avoid infinite recursion if not needed
                 // But user might want deep nesting. For now, let's allow it but limit display.
-                const fetchedComments = await getCommentsForPost(parseInt(post.id));
+                const fetchedComments = await getCommentsForPost(postId);
                 setComments(fetchedComments);
             } catch (e) {
                 console.error("Error fetching comments", e);
@@ -458,7 +670,13 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         console.log(`Voting: type=${type}, current=${userVote}, voting=${voting}`);
         
         if (!account) {
-            alert(t.connectWallet);
+            addNotification(t.connectWallet, "error");
+            return;
+        }
+
+        if (!post.creatorAddress) {
+            console.error("Missing creator address for post:", post);
+            addNotification("Unable to vote: Invalid post data", "error");
             return;
         }
         
@@ -486,6 +704,16 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         // Apply optimistic state
         setUserVote(newUserVote);
         setVotes({ up: newUp, down: newDown });
+
+        // Notify if upvote
+        if (newUserVote === 'up' && post.creatorAddress !== account.address.toString()) {
+            sendSocialNotification(post.creatorAddress, {
+                type: 'like',
+                actorAddress: account.address.toString(),
+                targetPostId: post.id,
+                targetPostContent: post.content.substring(0, 100)
+            });
+        }
 
         try {
             setVoting(true);
@@ -524,22 +752,27 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
     const handleBookmark = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!account) {
-            alert(t.connectWallet);
+        if (!account) return;
+
+        if (!post.creatorAddress) {
+            addNotification("Unable to bookmark: Invalid post data", "error");
             return;
         }
 
         const wasBookmarked = isBookmarked;
         const previousCount = bookmarkCount;
 
+        // Optimistic update
+        setIsBookmarked(!wasBookmarked);
+        setBookmarkCount(prev => wasBookmarked ? Math.max(0, prev - 1) : prev + 1);
+        
+        if (!wasBookmarked) {
+            addNotification("Saved to bookmarks", "success", { persist: false, duration: 1500 });
+        }
+
         try {
             setBookmarking(true);
             
-            // Optimistic update
-            setIsBookmarked(!wasBookmarked);
-            setBookmarkCount(prev => wasBookmarked ? Math.max(0, prev - 1) : prev + 1);
-
-            // Direct bookmark without signature (User Request: Remove popup)
             const res = await fetch('/api/bookmarks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -579,7 +812,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
         if (!account) {
             console.log("No account connected");
-            alert(t.connectWallet);
+            addNotification(t.connectWallet, 'error');
             return;
         }
 
@@ -587,36 +820,49 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         const requiredChainId = currentNetwork === 'testnet' ? '250' : '126';
         if (network?.chainId?.toString() !== requiredChainId) {
             console.error("Wrong network:", network?.chainId);
-            alert(`Wrong network! Please switch your wallet to Movement ${currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'} (Chain ID: ${requiredChainId}). Currently on: ${network?.chainId || 'Unknown'}`);
+            addNotification(`Wrong network! Please switch your wallet to Movement ${currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'} (Chain ID: ${requiredChainId}). Currently on: ${network?.chainId || 'Unknown'}`, 'error');
             return;
         }
 
         console.log("Account connected:", account.address);
         console.log("SignAndSubmit defined:", !!signAndSubmitTransaction);
 
+        if (!post.creatorAddress) {
+            console.error("Missing creator address for post:", post);
+            addNotification("Unable to tip: Invalid post data", "error");
+            return;
+        }
+
+        const amount = parseFloat(tipAmount);
+        if (isNaN(amount) || amount <= 0) {
+            console.error("Invalid amount:", tipAmount);
+            addNotification("Invalid tip amount", "error", { persist: false });
+            return;
+        }
+
+        if (isNaN(parseInt(post.id))) {
+             console.error("Invalid postId:", post.id);
+             addNotification("Invalid Post ID", "error", { persist: false });
+             return;
+        }
+
+        // Optimistic Update
+        const previousTips = localTotalTips;
+        setLocalTotalTips(prev => (typeof prev === 'number' ? prev : parseFloat(prev as string)) + amount);
+        setTipping(true);
+        setShowTipInput(false); // Close input immediately
+        addNotification("Sending tip...", "info", { persist: false });
+
         try {
-            setTipping(true);
             console.log("Preparing to send tip...");
 
             const params = {
                 creatorAddress: post.creatorAddress,
                 postId: parseInt(post.id),
-                amount: parseFloat(tipAmount)
+                amount: amount
             };
             
             console.log("Tip params:", params);
-
-            if (isNaN(params.postId)) {
-                console.error("Invalid postId:", post.id);
-                addNotification("Invalid Post ID", "error", { persist: false });
-                return;
-            }
-
-            if (isNaN(params.amount) || params.amount <= 0) {
-                console.error("Invalid amount:", tipAmount);
-                addNotification("Invalid tip amount", "error", { persist: false });
-                return;
-            }
 
             console.log("Calling sendTip...");
             // Use smart contract for tipping
@@ -624,25 +870,37 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
             const txHash = result.hash;
             console.log("sendTip returned hash:", txHash);
 
-            // Save to local storage for immediate UI update
-            if (account?.address) {
-                saveLocalTransaction({
-                    sender: account.address.toString(),
-                    receiver: post.creatorAddress,
-                    amount: parseFloat(tipAmount),
-                    timestamp: Math.floor(Date.now() / 1000), // Store in seconds to match on-chain events
-                    hash: txHash,
-                    postId: post.id.toString(),
-                    type: 'sent'
-                });
-            }
+            // Show Feedback Animation
+                setShowFeedback(true);
 
-            setShowTipInput(false);
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            window.dispatchEvent(new Event('tip_sent'));
-            addNotification(t.tipSuccess, "success", { persist: false });
-        } catch (error) {
+                // Save to local storage for immediate UI update
+                if (account?.address) {
+                    saveLocalTransaction({
+                        sender: account.address.toString(),
+                        receiver: post.creatorAddress,
+                        amount: parseFloat(tipAmount),
+                        timestamp: Math.floor(Date.now() / 1000), // Store in seconds to match on-chain events
+                        hash: txHash,
+                        postId: post.id.toString(),
+                        type: 'sent'
+                    });
+                }
+
+                // Dispatch Custom Event with Tip Details
+                const tipEvent = new CustomEvent('tip_sent', { 
+                    detail: { 
+                        amount: amount,
+                        sender: account?.address?.toString(),
+                        receiver: post.creatorAddress
+                    } 
+                });
+                window.dispatchEvent(tipEvent);
+                
+                addNotification(t.tipSuccess, "success", { persist: false });
+            } catch (error) {
             console.error("Tip failed details:", error);
+            // Revert optimistic update
+            setLocalTotalTips(previousTips);
             addNotification(t.tipError + ": " + (error instanceof Error ? error.message : String(error)), "error", { persist: true });
         } finally {
             setTipping(false);
@@ -722,7 +980,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
     const handleEdit = async () => {
         if (!editContent.trim()) {
-            alert(t.contentEmpty);
+            addNotification(t.contentEmpty, 'error');
             return;
         }
         try {
@@ -780,8 +1038,32 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
         router.push(`/${post.creatorAddress}/status/${post.id}`);
     };
 
+    if (isHidden) {
+        return (
+            <div className={`border-b border-[var(--card-border)] px-4 py-8 flex items-center justify-between bg-[var(--bg-secondary)]/10 transition-all duration-200`}>
+                    <span className="text-[var(--text-secondary)] font-medium">{t.postHidden || "Post hidden"}</span>
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            // Undo the interaction on backend
+                            handleInteraction('not_interested', true); 
+                        }}
+                        className="px-4 py-2 text-[var(--accent)] font-bold hover:bg-[var(--accent)]/10 rounded-full transition-colors"
+                    >
+                        {t.undo || "Undo"}
+                    </button>
+                </div>
+        );
+    }
+
     return (
         <>
+            <TipFeedback 
+                isActive={showFeedback} 
+                onComplete={() => setShowFeedback(false)} 
+                type="coin" 
+                amount={parseFloat(tipAmount)}
+            />
             <div 
                 className={`${compact ? 'py-2 hover:bg-transparent' : 'border-b border-[var(--card-border)] px-4 py-3 lg:px-6 lg:py-4 hover:bg-[var(--hover-bg)]'} transition-colors duration-200 cursor-pointer`}
                 onClick={handleCardClick}
@@ -790,7 +1072,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                 {repostedPost && !localPost.content.replace(/\[ref:[a-f0-9\-]+\]/g, '').trim() && (
                     <div className="flex items-center gap-2 mb-2 text-[var(--text-secondary)] text-sm font-medium">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19.5v-15m0 0l-6.75 6.75M12 4.5l6.75 6.75" />
                         </svg>
                         <span className="hover:underline cursor-pointer" onClick={(e) => {
                             e.stopPropagation();
@@ -828,12 +1110,28 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                     {displayName || formatMovementAddress(post.creatorAddress)}
                                 </Link>
                                 <span className="text-[var(--text-secondary)] text-sm truncate">
-                                    @{post.creatorAddress.slice(0, 6)}...
+                                    @{post.creatorAddress ? post.creatorAddress.slice(0, 6) : '...'}...
                                 </span>
                                 <span className="text-[var(--text-secondary)] text-sm">·</span>
+                                {!compact && (
                                 <span className="text-[var(--text-secondary)] text-sm whitespace-nowrap" title={new Date(post.createdAt).toLocaleString()}>
                                     {formatPostTime(post.createdAt, router.pathname.includes('/status/'))}
                                 </span>
+                                )}
+                                {post.status === 'pending' && (
+                                    <span className="ml-2 flex items-center gap-1 text-xs text-blue-500 font-medium bg-blue-500/10 px-2 py-0.5 rounded-full">
+                                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Posting...
+                                    </span>
+                                )}
+                                {post.status === 'fail' && (
+                                    <span className="ml-2 text-xs text-red-500 font-medium bg-red-500/10 px-2 py-0.5 rounded-full">
+                                        Failed
+                                    </span>
+                                )}
                                 {post.updatedAt && post.updatedAt > post.createdAt + 1000 && (
                                     <span 
                                         className="text-[var(--text-secondary)] text-sm ml-1 whitespace-nowrap" 
@@ -855,33 +1153,67 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
 
                             {/* Menu/Actions */}
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                {isOwner && (
-                                    <div className="relative group">
-                                        <button className="p-2 text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] rounded-full transition-colors">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                                            </svg>
-                                        </button>
-                                        <div className="absolute right-0 mt-2 w-32 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-                                            <button
-                                                onClick={() => {
-                                                    // Strip ref tag when entering edit mode
-                                                    setEditContent(post.content.replace(/\[ref:[a-f0-9\-]+\]/g, '').trim());
-                                                    setIsEditing(true);
-                                                }}
-                                                className="w-full text-left px-4 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--hover-bg)] first:rounded-t-lg"
-                                            >
-                                                {t.edit}
-                                            </button>
-                                            <button
-                                                onClick={handleDelete}
-                                                className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-[var(--hover-bg)] last:rounded-b-lg"
-                                            >
-                                                {t.delete}
-                                            </button>
-                                        </div>
+                                <div className="relative group">
+                                    <button className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--hover-bg)] rounded-full transition-colors">
+                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M12 13a1 1 0 100-2 1 1 0 000 2zm0-5a1 1 0 100-2 1 1 0 000 2zm0 10a1 1 0 100-2 1 1 0 000 2z" />
+                                        </svg>
+                                    </button>
+                                    <div className="absolute right-0 mt-2 w-56 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 overflow-hidden">
+                                        {isOwner ? (
+                                            <>
+                                                <button
+                                                    onClick={() => {
+                                                        setEditContent(post.content.replace(/\[ref:[a-f0-9\-]+\]/g, '').trim());
+                                                        setIsEditing(true);
+                                                    }}
+                                                    className="w-full text-left px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--hover-bg)] flex items-center gap-3"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                    {t.edit}
+                                                </button>
+                                                <button
+                                                    onClick={handleDelete}
+                                                    className="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-[var(--hover-bg)] flex items-center gap-3"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                    {t.delete}
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button
+                                                    onClick={() => handleInteraction('not_interested')}
+                                                    className="w-full text-left px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--hover-bg)] flex items-center gap-3"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                                    {t.notInterested || "Not interested in this post"}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleInteraction('unfollow')}
+                                                    className="w-full text-left px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--hover-bg)] flex items-center gap-3"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" /></svg>
+                                                    {t.unfollow} @{post.creatorHandle || post.creatorAddress?.slice(0, 4) || '...'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleInteraction('mute')}
+                                                    className="w-full text-left px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--hover-bg)] flex items-center gap-3"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
+                                                    {t.mute} @{post.creatorHandle || post.creatorAddress?.slice(0, 4) || '...'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleInteraction('block')}
+                                                    className="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-[var(--hover-bg)] flex items-center gap-3 border-t border-[var(--card-border)]"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                                    {t.block} @{post.creatorHandle || post.creatorAddress?.slice(0, 4) || '...'}
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
-                                )}
+                                </div>
                             </div>
                         </div>
 
@@ -914,7 +1246,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                             className="flex items-center gap-2 px-4 py-2 bg-[var(--card-border)] rounded-lg hover:bg-[var(--hover-bg)] transition-colors text-sm font-medium"
                                         >
                                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                                             </svg>
                                             {editImage ? t.changeImage : t.addImage}
                                         </button>
@@ -957,6 +1289,12 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                     {formatContentWithLinks(localPost.content.replace(/\[ref:[a-f0-9\-]+\]/g, '').trim())}
                                 </p>
                                 
+                                {miniAppData && (
+                                    <div className="mt-3 w-full rounded-xl overflow-hidden border border-[var(--card-border)] bg-[var(--bg-secondary)]" onClick={(e) => e.stopPropagation()}>
+                                        <MiniAppRenderer appUrl={miniAppData} postId={post.id} />
+                                    </div>
+                                )}
+
                                 {/* Repost Content */}
                                 {repostedPost && (
                                     <div 
@@ -967,18 +1305,18 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         }}
                                     >
                                         <div className="flex items-center gap-2 mb-2">
-                                            <div className="w-6 h-6 rounded-full bg-[var(--card-border)] overflow-hidden">
-                                                <div className="w-full h-full flex items-center justify-center font-bold text-xs text-[var(--text-primary)]">
-                                                    {repostedPost.creator[0].toUpperCase()}
-                                                </div>
+                                        <div className="w-6 h-6 rounded-full bg-[var(--card-border)] overflow-hidden">
+                                            <div className="w-full h-full flex items-center justify-center font-bold text-xs text-[var(--text-primary)]">
+                                                {repostedPost.creator ? repostedPost.creator[0].toUpperCase() : '?'}
                                             </div>
-                                            <span className="font-bold text-sm text-[var(--text-primary)]">
-                                                @{repostedPost.creator.slice(0, 6)}...
-                                            </span>
-                                            <span className="text-[var(--text-secondary)] text-xs">
-                                                · {formatPostTime(repostedPost.timestamp * 1000, false)}
-                                            </span>
                                         </div>
+                                        <span className="font-bold text-sm text-[var(--text-primary)]">
+                                            @{repostedPost.creator ? repostedPost.creator.slice(0, 6) : 'unknown'}...
+                                        </span>
+                                        <span className="text-[var(--text-secondary)] text-xs">
+                                            · {formatPostTime(repostedPost.timestamp * 1000, false)}
+                                        </span>
+                                    </div>
                                         <div className="text-sm text-[var(--text-primary)] whitespace-pre-wrap line-clamp-3">
                                             {repostedPost.content.replace(/\[ref:[a-f0-9\-]+\]/g, '').trim()}
                                         </div>
@@ -997,22 +1335,30 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         media.length === 2 ? 'grid-cols-2' : 
                                         'grid-cols-2'
                                     }`}>
-                                        {media.map((item, index) => (
+                                        {media.map((item, index) => {
+                                            const isSingleAudio = media.length === 1 && item.type === 'audio';
+                                            return (
                                             <div 
                                                 key={item.id}
                                                 className={`relative cursor-pointer hover:opacity-95 transition-opacity ${
                                                     media.length === 3 && index === 0 ? 'row-span-2' : ''
                                                 } ${
                                                     media.length > 4 && index === 3 ? 'opacity-50' : ''
-                                                } ${media.length > 1 ? 'aspect-square' : 'h-[210px]'}`}
+                                                } ${media.length > 1 ? 'aspect-square' : isSingleAudio ? 'h-auto' : 'h-[210px]'}`}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setSelectedMediaIndex(index);
-                                                    setIsImageOpen(true);
+                                                    if (item.type !== 'audio') {
+                                                        setSelectedMediaIndex(index);
+                                                        setIsImageOpen(true);
+                                                    }
                                                 }}
                                             >
                                                 {item.type === 'video' ? (
-                                                    <video src={item.url} className="w-full h-full object-cover" />
+                                                    <video src={item.url} controls className="w-full h-full object-cover" />
+                                                ) : item.type === 'audio' ? (
+                                                    <div className="w-full h-full flex items-center justify-center bg-[var(--bg-secondary)] px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                                                        <AudioPlayer src={item.url} className="w-full" />
+                                                    </div>
                                                 ) : (
                                                     <img src={item.url} alt="Post content" className="w-full h-full object-cover" />
                                                 )}
@@ -1024,7 +1370,8 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                                     </div>
                                                 )}
                                             </div>
-                                        )).slice(0, 4)}
+                                        );
+                                        }).slice(0, 4)}
                                     </div>
                                 ) : localPost.image_url ? (
                                     <div 
@@ -1042,35 +1389,40 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                         )}
 
                         {/* Post Stats Footer */}
+                        {!compact && (
                         <div className="flex items-center gap-1 mt-3 text-[var(--text-secondary)] text-[15px] leading-5 border-b border-[var(--card-border)] pb-3" onClick={(e) => e.stopPropagation()}>
                             <span className="hover:underline cursor-pointer">{formatPostStatsDate(localPost.createdAt)}</span>
                             <span>·</span>
                             <span className="font-bold text-[var(--text-primary)]">{viewCount}</span>
                             <span>Views</span>
                         </div>
+                        )}
 
                         {/* Action Bar */}
-                        <div className="flex items-center justify-between mt-2 w-full max-w-[550px]" onClick={(e) => e.stopPropagation()}>
+                        {!compact && (
+                        <div className="flex items-center justify-between w-full max-w-[550px] mt-2" onClick={(e) => e.stopPropagation()}>
                             {/* Reply Button */}
-                            <button 
-                                onClick={() => setShowReplyForm(!showReplyForm)}
-                                className="group flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-sky-500 transition-colors"
-                                title={t.replyButton}
-                            >
-                                <div className="p-2 rounded-full group-hover:bg-sky-500/10 transition-all group-hover:scale-110">
-                                    <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.48.432.447.74 1.04.586 1.641a4.483 4.483 0 01-.923 1.785A5.969 5.969 0 006 21c1.282 0 2.47-.402 3.445-1.087.81.22 1.668.337 2.555.337z" />
-                                    </svg>
-                                </div>
-                                {commentCount > 0 && (
-                                    <span className="text-xs font-medium text-[var(--text-secondary)] group-hover:text-sky-500">
-                                        {commentCount}
-                                    </span>
-                                )}
-                            </button>
+                            <div className="flex-1 flex justify-center">
+                                <button 
+                                    onClick={() => setShowReplyForm(!showReplyForm)}
+                                    className="group flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-sky-500 transition-colors"
+                                    title={t.replyButton}
+                                >
+                                    <div className="p-2 rounded-full group-hover:bg-sky-500/10 transition-all group-hover:scale-110">
+                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                                        </svg>
+                                    </div>
+                                    {commentCount > 0 && (
+                                        <span className="text-xs font-medium text-[var(--text-secondary)] group-hover:text-sky-500">
+                                            {commentCount}
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
 
                             {/* Repost Button */}
-                            <div className="relative">
+                            <div className="relative flex-1 flex justify-center">
                                 <button 
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -1080,8 +1432,11 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                     title={t.repostButton}
                                 >
                                     <div className="p-2 rounded-full group-hover:bg-green-500/10 transition-all group-hover:scale-110">
-                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3" />
+                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                            <path d="M17 1l4 4-4 4" />
+                                            <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                                            <path d="M7 23l-4-4 4-4" />
+                                            <path d="M21 13v2a4 4 0 0 1-4 4H3" />
                                         </svg>
                                     </div>
                                 </button>
@@ -1116,29 +1471,33 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                             </div>
 
                             {/* Tip Button */}
-                            <div className="flex items-center">
+                            <div className="flex-1 flex justify-center items-center h-full">
                                 {isOwner ? (
                                     <div className="flex items-center gap-1 text-[var(--text-secondary)] opacity-50 cursor-not-allowed" title={t.cannotTipOwn}>
                                         <div className="p-2">
-                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
                                         </div>
-                                        {(typeof post.totalTips === 'number' ? post.totalTips : parseFloat(post.totalTips as string)) > 0 && (
-                                            <span className="text-xs font-medium">
-                                                {typeof post.totalTips === 'number' 
-                                                    ? post.totalTips.toFixed(1) 
-                                                    : parseFloat(post.totalTips as string).toFixed(1)}
-                                            </span>
-                                        )}
+                                        <span 
+                                            className="text-xs font-medium cursor-pointer hover:underline hover:text-[var(--accent)]"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setShowTipStats(true);
+                                            }}
+                                        >
+                                            {typeof localTotalTips === 'number' 
+                                                ? localTotalTips.toFixed(1) 
+                                                : parseFloat(localTotalTips as string).toFixed(1)} MOVE
+                                        </span>
                                     </div>
                                 ) : showTipInput ? (
-                                    <div className="flex items-center gap-2 animate-fadeIn bg-[var(--card-bg)] border border-[var(--accent)] rounded-full px-1 py-1">
+                                    <div className="flex items-center gap-1 animate-fadeIn bg-[var(--card-bg)] border border-[var(--accent)] rounded-full px-1 py-0.5 shadow-lg z-20 relative">
                                         <input
                                             type="number"
                                             value={tipAmount}
                                             onChange={(e) => setTipAmount(e.target.value)}
-                                            className="w-16 bg-transparent border-none px-2 py-1 text-sm font-bold text-[var(--text-primary)] focus:ring-0 focus:outline-none text-center appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            className="w-12 bg-transparent border-none px-1 py-0.5 text-xs font-bold text-[var(--text-primary)] focus:ring-0 focus:outline-none text-center appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             min="0.1"
                                             step="0.1"
                                             placeholder="0.0"
@@ -1148,124 +1507,144 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         <button
                                             onClick={handleTip}
                                             disabled={tipping}
-                                            className="px-3 py-1 bg-[var(--accent)] text-[var(--btn-text-primary)] text-xs font-bold rounded-full hover:opacity-90 disabled:opacity-50 transition-all shadow-sm"
+                                            className="px-2 py-0.5 bg-[var(--accent)] text-[var(--btn-text-primary)] text-[10px] font-bold rounded-full hover:opacity-90 disabled:opacity-50 transition-all shadow-sm whitespace-nowrap"
                                         >
                                             {tipping ? '...' : t.tip}
                                         </button>
                                         <button
                                             onClick={() => setShowTipInput(false)}
-                                            className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--hover-bg)] rounded-full transition-colors"
+                                            className="p-0.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--hover-bg)] rounded-full transition-colors"
                                         >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                             </svg>
                                         </button>
                                     </div>
                                 ) : (
-                                    <button
-                                        onClick={() => setShowTipInput(true)}
-                                        className="group flex items-center gap-1 text-[var(--text-secondary)] hover:text-yellow-400 transition-colors"
-                                        title={t.tip}
-                                    >
-                                        <div className="p-2 rounded-full group-hover:bg-yellow-400/10 transition-all group-hover:scale-110">
-                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-                                            </svg>
-                                        </div>
-                                        {(typeof post.totalTips === 'number' ? post.totalTips : parseFloat(post.totalTips as string)) > 0 && (
-                                            <span className="text-xs font-medium text-[var(--text-secondary)] group-hover:text-yellow-400">
-                                                {typeof post.totalTips === 'number' 
-                                                    ? post.totalTips.toFixed(1) 
-                                                    : parseFloat(post.totalTips as string).toFixed(1)}
-                                            </span>
-                                        )}
-                                    </button>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => !tipping && setShowTipInput(true)}
+                                            disabled={tipping}
+                                            className={`group flex items-center gap-1 transition-colors ${tipping ? 'text-yellow-500' : 'text-[var(--text-secondary)] hover:text-yellow-400'}`}
+                                            title={t.tip}
+                                        >
+                                            <div className="p-2 rounded-full group-hover:bg-yellow-400/10 transition-all group-hover:scale-110">
+                                                {tipping ? (
+                                                    <svg className="animate-spin h-[20px] w-[20px]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                ) : (
+                                                    <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                )}
+                                            </div>
+                                        </button>
+                                        <span 
+                                            className={`text-xs font-medium cursor-pointer hover:underline ${tipping ? 'text-yellow-500' : 'text-[var(--text-secondary)] hover:text-yellow-400'}`}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setShowTipStats(true);
+                                            }}
+                                            title="View Tip Stats"
+                                        >
+                                            {typeof localTotalTips === 'number' 
+                                                ? localTotalTips.toFixed(1) 
+                                                : parseFloat(localTotalTips as string).toFixed(1)} MOVE
+                                        </span>
+                                    </div>
                                 )}
                             </div>
 
-                            {/* Vote Buttons (Compact Pill) */}
-                            <div className="flex items-center bg-[var(--card-border)]/30 rounded-full h-9 border border-transparent hover:border-[var(--card-border)] transition-colors">
+                            {/* Like Button */}
+                            <div className="flex-1 flex justify-center">
                                 <button
                                     onClick={(e) => handleVote(e, 'up')}
                                     disabled={voting}
-                                    className={`pl-2 pr-1.5 h-full flex items-center hover:text-green-500 transition-colors ${userVote === 'up' ? 'text-green-500' : 'text-[var(--text-secondary)]'}`}
+                                    className={`group flex items-center gap-1.5 transition-colors ${userVote === 'up' ? 'text-pink-600' : 'text-[var(--text-secondary)] hover:text-pink-600'}`}
+                                    title="Like"
                                 >
-                                    <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                                    </svg>
+                                    <div className="p-2 rounded-full group-hover:bg-pink-600/10 transition-all group-hover:scale-110">
+                                        {userVote === 'up' ? (
+                                            <svg className="w-[20px] h-[20px] fill-current" viewBox="0 0 24 24">
+                                                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                            </svg>
+                                        )}
+                                    </div>
+                                    {(votes.up > 0 || userVote === 'up') && (
+                                        <span className={`text-xs font-medium ${userVote === 'up' ? 'text-pink-600' : 'text-[var(--text-secondary)]'}`}>
+                                            {votes.up || (userVote === 'up' ? 1 : 0)}
+                                        </span>
+                                    )}
                                 </button>
-                                <span className={`text-xs font-bold px-0.5 min-w-[12px] text-center ${votes.up > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
-                                    {votes.up > 0 ? votes.up : ''}
-                                </span>
-                                <div className="w-[1px] h-4 bg-[var(--card-border)] mx-1"></div>
-                                <button
-                                    onClick={(e) => handleVote(e, 'down')}
-                                    disabled={voting}
-                                    className={`pl-1.5 pr-1.5 h-full flex items-center hover:text-red-500 transition-colors ${userVote === 'down' ? 'text-red-500' : 'text-[var(--text-secondary)]'}`}
-                                >
-                                    <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                    </svg>
-                                </button>
-                                <span className={`text-xs font-bold px-0.5 pr-2 min-w-[12px] text-center ${votes.down > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
-                                    {votes.down > 0 ? votes.down : ''}
-                                </span>
                             </div>
 
                             {/* Bookmark Button */}
-                            <button
-                                onClick={handleBookmark}
-                                disabled={bookmarking}
-                                className={`group flex items-center gap-1 transition-colors ${isBookmarked ? 'text-blue-500' : 'text-[var(--text-secondary)] hover:text-blue-500'}`}
-                                title={t.bookmark}
-                            >
-                                <div className="p-2 rounded-full group-hover:bg-blue-500/10 transition-all group-hover:scale-110">
-                                    {isBookmarked ? (
-                                        <svg className="w-[20px] h-[20px] fill-current" viewBox="0 0 24 24">
-                                            <path d="M5 5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z" />
-                                        </svg>
-                                    ) : (
-                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
-                                        </svg>
-                                    )}
-                                </div>
-                            </button>
+                            <div className="flex-1 flex justify-center">
+                                <button
+                                    onClick={handleBookmark}
+                                    disabled={bookmarking}
+                                    className={`group flex items-center gap-1 transition-colors ${isBookmarked ? 'text-blue-500' : 'text-[var(--text-secondary)] hover:text-blue-500'}`}
+                                    title={t.bookmark}
+                                >
+                                    <div className="p-2 rounded-full group-hover:bg-blue-500/10 transition-all group-hover:scale-110">
+                                        {isBookmarked ? (
+                                            <svg className="w-[20px] h-[20px] fill-current" viewBox="0 0 24 24">
+                                                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                                            </svg>
+                                        )}
+                                    </div>
+                                </button>
+                            </div>
 
                             {/* Share Button */}
-                            <button 
-                                className={`group flex items-center gap-1 transition-colors ${isCopied ? 'text-green-500' : 'text-[var(--text-secondary)] hover:text-blue-500'}`}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    const url = `${window.location.origin}/post/${post.id}`;
-                                    navigator.clipboard.writeText(url).then(() => {
-                                        setIsCopied(true);
-                                        addNotification("Link copied", "success", { persist: false, duration: 1500 });
-                                        setTimeout(() => setIsCopied(false), 2000);
-                                    }).catch(() => {
-                                        addNotification("Failed to copy", "error", { persist: false });
-                                    });
-                                }}
-                                title="Copy link"
-                            >
-                                <div className={`p-2 rounded-full transition-colors ${isCopied ? 'bg-green-500/10' : 'group-hover:bg-blue-500/10'}`}>
-                                    {isCopied ? (
-                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-                                        </svg>
-                                    ) : (
-                                        <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-                                        </svg>
-                                    )}
-                                </div>
-                            </button>
+                            <div className="flex-1 flex justify-center">
+                                <button 
+                                    className={`group flex items-center gap-1 transition-colors ${isCopied ? 'text-green-500' : 'text-[var(--text-secondary)] hover:text-blue-500'}`}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const url = `${window.location.origin}/post/${post.id}`;
+                                        navigator.clipboard.writeText(url).then(() => {
+                                            setIsCopied(true);
+                                            addNotification("Link copied", "success", { persist: false, duration: 1500 });
+                                            setTimeout(() => setIsCopied(false), 2000);
+                                        }).catch(() => {
+                                            addNotification("Failed to copy", "error", { persist: false });
+                                        });
+                                    }}
+                                    title="Copy link"
+                                >
+                                    <div className={`p-2 rounded-full transition-colors ${isCopied ? 'bg-green-500/10' : 'group-hover:bg-blue-500/10'}`}>
+                                        {isCopied ? (
+                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                                <path d="M20 6L9 17l-5-5" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                                                <polyline points="16 6 12 2 8 6" />
+                                                <line x1="12" y1="2" x2="12" y2="15" />
+                                            </svg>
+                                        )}
+                                    </div>
+                                </button>
+                            </div>
                         </div>
+                        )}
 
-                        {/* Comments Preview (Max 3) */}
+                        {/* Comments Preview (Max previewCount) */}
                         {comments.length > 0 && (
                             <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                                {comments.slice(0, 3).map((comment) => (
+                                {comments.slice(0, previewCount).map((comment) => (
                                     <div key={comment.id} className="relative mt-2">
                                         <div className="absolute left-[-32px] top-[-10px] bottom-0 w-[2px] bg-[var(--card-border)] rounded-full"></div>
                                         <PostCard
@@ -1289,7 +1668,7 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                                         />
                                     </div>
                                 ))}
-                                {comments.length > 3 && (
+                                {comments.length > previewCount && (
                                     <button 
                                         className="text-[13px] text-[var(--accent)] hover:underline w-full text-left mt-2"
                                         onClick={(e) => {
@@ -1307,7 +1686,8 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                         {showReplyForm && (
                             <div className="mt-4 border-t border-[var(--card-border)] pt-4" onClick={(e) => e.stopPropagation()}>
                                 <CreatePostForm 
-                                    parentId={parseInt(post.id)} 
+                                    parentId={parseInt(post.id)}
+                                    parentAuthorAddress={post.creatorAddress} 
                                     onPostCreated={() => {
                                         setShowReplyForm(false);
                                         window.dispatchEvent(new Event('comment_added'));
@@ -1347,6 +1727,14 @@ export default function PostCard({ post, isOwner, showTipButton = true, initialI
                     </div>
                 </div>
             </div>
+
+            {/* Tip Stats Modal */}
+            <TipStatsModal
+                isOpen={showTipStats}
+                onClose={() => setShowTipStats(false)}
+                userAddress={post.creatorAddress}
+                displayName={displayName || post.creatorHandle || formatMovementAddress(post.creatorAddress)}
+            />
 
             {/* Image Viewer Modal */}
             {isImageOpen && (

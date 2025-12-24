@@ -2,14 +2,11 @@ import { useRouter } from 'next/router';
 import { useState, useEffect } from 'react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import Head from 'next/head';
-import LeftSidebar from '@/components/LeftSidebar';
 import RightSidebar from '@/components/RightSidebar';
 import PostCard from '@/components/PostCard';
 import CommentSection from '@/components/CommentSection';
-import { getPost, getCommentsForPost, getDisplayName, getAvatar, OnChainPost } from '@/lib/microThreadsClient';
+import { getPost, getCommentsForPost, getDisplayName, getAvatar, OnChainPost, getUserPostsPaginated } from '@/lib/microThreadsClient';
 import { octasToMove } from '@/lib/movement';
-import { WalletConnectButton } from '@/components/WalletConnectButton';
-import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function SinglePostPage() {
@@ -20,6 +17,7 @@ export default function SinglePostPage() {
     const userAddress = account?.address.toString() || "";
 
     const [post, setPost] = useState<any>(null);
+    const [parentPost, setParentPost] = useState<any>(null);
     const [comments, setComments] = useState<OnChainPost[]>([]);
     const [commentCounts, setCommentCounts] = useState<Record<number, number>>({});
     const [loading, setLoading] = useState(true);
@@ -34,12 +32,26 @@ export default function SinglePostPage() {
         setLoading(true);
         try {
             const postId = Number(id);
+            const creatorHandle = Array.isArray(router.query.handle) ? router.query.handle[0] : router.query.handle;
             
-            // Use optimized getPost and getCommentsForPost
-            const [fetchedPost, postComments] = await Promise.all([
-                getPost(postId),
-                getCommentsForPost(postId)
-            ]);
+            // Try standard fetch first
+            let fetchedPost = await getPost(postId);
+
+            // Fallback: If not found and we have a creator handle (address), try finding it in their recent posts
+            // This handles cases where get_post_by_id might be missing or failing on the contract
+            if (!fetchedPost && creatorHandle && creatorHandle.startsWith('0x')) {
+                console.log(`Post ${postId} not found via direct fetch, scanning creator ${creatorHandle} posts...`);
+                try {
+                    // Fetch first 100 posts (should cover most recent clicks)
+                    const userPosts = await getUserPostsPaginated(creatorHandle, 0, 100);
+                    fetchedPost = userPosts.find(p => p.id === postId) || null;
+                } catch (err) {
+                    console.error("Fallback fetch failed:", err);
+                }
+            }
+            
+            // Fetch comments independently
+            const postComments = await getCommentsForPost(postId);
 
             if (fetchedPost) {
                 // Fetch creator profile
@@ -68,6 +80,30 @@ export default function SinglePostPage() {
                     profileMap[creator] = { displayName: cName, avatar: cAvatar };
                 }));
                 setProfiles(profileMap);
+
+                // Fetch parent post if this is a reply (parent_id > 0)
+                if (fetchedPost.parent_id > 0) {
+                    try {
+                        const parent = await getPost(fetchedPost.parent_id);
+                        if (parent) {
+                            const pName = await getDisplayName(parent.creator);
+                            const pAvatar = await getAvatar(parent.creator);
+                            setParentPost({
+                                ...parent,
+                                creatorHandle: pName,
+                                creatorAvatar: pAvatar
+                            });
+                            
+                            // Get comment count for parent
+                            const pComments = await getCommentsForPost(parent.id);
+                            const newCounts = { ...counts };
+                            newCounts[parent.id] = pComments.length;
+                            setCommentCounts(newCounts);
+                        }
+                    } catch (e) {
+                        console.error("Failed to fetch parent post", e);
+                    }
+                }
             }
         } catch (error) {
             console.error("Error fetching post:", error);
@@ -101,41 +137,14 @@ export default function SinglePostPage() {
     return (
         <>
             <Head>
-                <title>Post | MoveFeed</title>
+                <title>Post by {myDisplayName || "User"} - MoveX</title>
             </Head>
 
             {/* Header - Movement Labs Style */}
-            <header className="border-b border-[var(--card-border)] bg-[var(--card-bg)] sticky top-0 z-40 transition-colors duration-300">
-                <div className="container-custom py-6">
-                    <div className="max-w-[1280px] mx-auto flex items-center justify-between">
-                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => router.push(connected ? '/feed' : '/')}>
-                            <div className="w-10 h-10 bg-[var(--accent)] rounded-lg flex items-center justify-center shadow-lg">
-                                <span className="text-black font-bold text-xl">M</span>
-                            </div>
-                            <span className="font-bold text-xl tracking-tight text-[var(--text-primary)]">MOVEFEED</span>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                            <WalletConnectButton />
-                            <ThemeSwitcher />
-                        </div>
-                    </div>
-                </div>
-            </header>
-
             <main className="container-custom py-6 md:py-10">
                 <div className="max-w-[1280px] mx-auto">
-                    <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] xl:grid-cols-[240px_1fr_280px] gap-y-8 lg:gap-x-0 lg:divide-x lg:divide-[var(--card-border)]">
-                        {/* LEFT SIDEBAR */}
-                        <div className="lg:pr-6">
-                            <LeftSidebar
-                                activePage="home"
-                                currentUserAddress={userAddress}
-                                displayName={myDisplayName}
-                                avatar={myAvatar}
-                            />
-                        </div>
-
+                    <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-6 xl:divide-x xl:divide-[var(--card-border)]">
+                        
                         {/* CENTER: Post & Comments */}
                         <div className="min-w-0 lg:px-6">
                             {/* Header with Back Button */}
@@ -149,34 +158,86 @@ export default function SinglePostPage() {
                             </div>
 
                             {loading ? (
-                                <div className="p-8 flex justify-center">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--accent)]"></div>
+                                <div className="space-y-4">
+                                    {/* Main Post Skeleton */}
+                                    <div className="bg-[var(--card-bg)] border-b border-[var(--card-border)] p-4 animate-pulse">
+                                        <div className="flex gap-3">
+                                            <div className="w-10 h-10 bg-neutral-800 rounded-full"></div>
+                                            <div className="flex-1 space-y-2 py-1">
+                                                <div className="h-4 bg-neutral-800 rounded w-1/3"></div>
+                                                <div className="h-3 bg-neutral-800 rounded w-1/4"></div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 space-y-2">
+                                            <div className="h-4 bg-neutral-800 rounded w-full"></div>
+                                            <div className="h-4 bg-neutral-800 rounded w-5/6"></div>
+                                            <div className="h-4 bg-neutral-800 rounded w-4/6"></div>
+                                        </div>
+                                    </div>
+                                    {/* Comments Skeleton */}
+                                    {[1, 2, 3].map(i => (
+                                        <div key={i} className="bg-[var(--card-bg)] border-b border-[var(--card-border)] p-4 animate-pulse">
+                                            <div className="flex gap-3">
+                                                <div className="w-8 h-8 bg-neutral-800 rounded-full"></div>
+                                                <div className="flex-1 space-y-2 py-1">
+                                                    <div className="h-3 bg-neutral-800 rounded w-1/4"></div>
+                                                    <div className="h-3 bg-neutral-800 rounded w-3/4"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             ) : post ? (
                                 <>
+                                    {parentPost && (
+                                        <div className="relative">
+                                            <div className="border-b border-[var(--card-border)] opacity-80 hover:opacity-100 transition-opacity">
+                                                <PostCard
+                                                    post={{
+                                                        id: parentPost.id.toString(),
+                                                        creatorAddress: parentPost.creator,
+                                                        creatorHandle: parentPost.creatorHandle,
+                                                        creatorAvatar: parentPost.creatorAvatar,
+                                                        content: parentPost.content,
+                                                        image_url: parentPost.image_url,
+                                                        style: parentPost.style,
+                                                        totalTips: octasToMove(parentPost.total_tips),
+                                                        createdAt: parentPost.timestamp * 1000,
+                                                        updatedAt: parentPost.updated_at,
+                                                        commentCount: commentCounts[parentPost.id] || 0
+                                                    }}
+                                                    isOwner={parentPost.creator === userAddress}
+                                                />
+                                            </div>
+                                            {/* Thread connector line */}
+                                            <div className="absolute left-8 bottom-0 top-16 w-0.5 bg-[var(--card-border)] -z-10" />
+                                        </div>
+                                    )}
                                     <div className="border-b border-[var(--card-border)]">
                                         <PostCard
-                                            post={{
-                                                id: post.id.toString(),
-                                                creatorAddress: post.creator,
-                                                creatorHandle: post.creatorHandle,
-                                                creatorAvatar: post.creatorAvatar,
-                                                content: post.content,
-                                                image_url: post.image_url,
-                                                style: post.style,
-                                                totalTips: octasToMove(post.total_tips),
-                                                createdAt: post.timestamp * 1000,
-                                                updatedAt: post.updated_at,
-                                                commentCount: commentCounts[post.id] || 0
-                                            }}
-                                            isOwner={post.creator === userAddress}
-                                        />
+                                                post={{
+                                                    id: post.id.toString(),
+                                                    creatorAddress: post.creator,
+                                                    creatorHandle: post.creatorHandle,
+                                                    creatorAvatar: post.creatorAvatar,
+                                                    content: post.content,
+                                                    image_url: post.image_url,
+                                                    style: post.style,
+                                                    totalTips: octasToMove(post.total_tips),
+                                                    createdAt: post.timestamp * 1000,
+                                                    updatedAt: post.updated_at,
+                                                    commentCount: commentCounts[post.id] || 0
+                                                }}
+                                                isOwner={post.creator === userAddress}
+                                                hideComments={true}
+                                            />
                                     </div>
                                     <CommentSection
                                         postId={post.id}
                                         comments={comments}
                                         commentCounts={commentCounts}
                                         onCommentAdded={fetchPostAndComments}
+                                        profiles={profiles}
                                     />
                                 </>
                             ) : (

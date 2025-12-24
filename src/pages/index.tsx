@@ -13,10 +13,11 @@ import { getExplorerLink, ExplorerType } from "@/lib/explorer";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function Home() {
-    const { connected } = useWallet();
+    const { connected, account, disconnect } = useWallet();
     const router = useRouter();
     const { t } = useLanguage();
     const [explorerType, setExplorerType] = useState<ExplorerType>('movement');
+    const [showSwitchWarning, setShowSwitchWarning] = useState(false);
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -27,15 +28,44 @@ export default function Home() {
 
     // Redirect to feed if already connected
     useEffect(() => {
-        if (connected) {
+        if (connected && account) {
+            const isSwitching = localStorage.getItem('switching_account') === 'true';
+            const prevAccount = localStorage.getItem('previous_account');
+            
+            // Check if user reconnected the same account they wanted to switch from
+            if (isSwitching && prevAccount && account.address.toString() === prevAccount) {
+                setShowSwitchWarning(true);
+                return;
+            }
+
+            // Clean up and redirect
+            localStorage.removeItem('switching_account');
+            localStorage.removeItem('previous_account');
             router.push("/feed");
         }
-    }, [connected, router]);
+    }, [connected, account, router]);
+
+    const handleRetrySwitch = async () => {
+        try {
+            await disconnect();
+        } catch (e) {
+            console.error("Disconnect failed", e);
+        }
+        setShowSwitchWarning(false);
+        // User stays on page to connect again
+    };
+
+    const handleCancelSwitch = () => {
+        localStorage.removeItem('switching_account');
+        localStorage.removeItem('previous_account');
+        setShowSwitchWarning(false);
+        router.push("/feed");
+    };
 
     return (
         <>
             <Head>
-                <title>MoveFeed + Tips - Movement Network</title>
+                <title>MoveX + Tips - Movement Network</title>
             </Head>
 
             {/* Background Effects */}
@@ -54,7 +84,7 @@ export default function Home() {
                             <div className="w-8 h-8 bg-[var(--accent)] rounded-lg flex items-center justify-center transform transition-transform group-hover:rotate-12">
                                 <span className="text-[var(--btn-text-primary)] font-bold text-lg">M</span>
                             </div>
-                            <span className="text-text-primary font-semibold text-lg tracking-tight">MoveFeed</span>
+                            <span className="text-text-primary font-semibold text-lg tracking-tight">MoveX</span>
                         </div>
                         <div className="flex items-center gap-6">
                             <a href="#features" className="nav-link hover:text-[var(--accent)] transition-colors text-sm font-medium">{t.features}</a>
@@ -224,7 +254,7 @@ export default function Home() {
                                 <div className="w-8 h-8 bg-[var(--accent)] rounded-lg flex items-center justify-center">
                                     <span className="text-[var(--btn-text-primary)] font-bold text-sm">M</span>
                                 </div>
-                                <span className="text-text-secondary font-medium">MoveFeed + Tips &copy; 2025</span>
+                                <span className="text-text-secondary font-medium">MoveX + Tips &copy; 2025</span>
                             </div>
                             <div className="flex items-center gap-8">
                                 <a href="https://docs.movementnetwork.xyz" target="_blank" rel="noopener noreferrer" className="text-text-secondary hover:text-[var(--accent)] transition-colors font-medium">
@@ -238,6 +268,36 @@ export default function Home() {
                     </div>
                 </footer>
             </main>
+
+            {showSwitchWarning && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in text-center">
+                        <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-4 text-yellow-500">
+                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        </div>
+                        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">Same Account Detected</h2>
+                        <p className="text-[var(--text-secondary)] mb-6">
+                            You connected the same account ({account?.address?.toString().slice(0, 6)}...{account?.address?.toString().slice(-4)}).
+                            <br/><br/>
+                            To switch accounts, please open your wallet extension, select a different account, and then connect again.
+                        </p>
+                        <div className="space-y-3">
+                            <button 
+                                onClick={handleRetrySwitch}
+                                className="w-full py-3 px-4 rounded-xl bg-[var(--accent)] text-[var(--btn-text-primary)] font-bold hover:brightness-110 transition-all"
+                            >
+                                Disconnect & Try Again
+                            </button>
+                            <button 
+                                onClick={handleCancelSwitch}
+                                className="w-full py-3 px-4 rounded-xl border border-[var(--card-border)] text-[var(--text-primary)] font-medium hover:bg-[var(--hover-bg)] transition-colors"
+                            >
+                                Cancel (Continue with this account)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

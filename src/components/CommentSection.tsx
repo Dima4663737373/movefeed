@@ -5,18 +5,21 @@ import { octasToMove } from '@/lib/movement';
 import PostCard from './PostCard';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNetwork } from '@/contexts/NetworkContext';
+import { useNotifications } from '@/components/Notifications';
 
 interface CommentSectionProps {
     postId: number;
     comments: OnChainPost[];
     commentCounts?: Record<number, number>;
     onCommentAdded: () => void;
+    profiles?: Record<string, { displayName: string; avatar: string }>;
 }
 
-export default function CommentSection({ postId, comments, commentCounts = {}, onCommentAdded }: CommentSectionProps) {
+export default function CommentSection({ postId, comments, commentCounts = {}, onCommentAdded, profiles = {} }: CommentSectionProps) {
     const { signAndSubmitTransaction, connected, account, network } = useWallet();
     const { t } = useLanguage();
     const { currentNetwork } = useNetwork();
+    const { addNotification } = useNotifications();
     const [content, setContent] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -28,7 +31,7 @@ export default function CommentSection({ postId, comments, commentCounts = {}, o
         // Strict Network Check
         const requiredChainId = currentNetwork === 'testnet' ? '250' : '126';
         if (network?.chainId?.toString() !== requiredChainId) {
-            alert(`Wrong network! Please switch your wallet to Movement ${currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'} (Chain ID: ${requiredChainId}). Currently on: ${network?.chainId || 'Unknown'}`);
+            addNotification(`Wrong network! Please switch your wallet to Movement ${currentNetwork === 'testnet' ? 'Testnet' : 'Mainnet'} (Chain ID: ${requiredChainId}). Currently on: ${network?.chainId || 'Unknown'}`, 'error');
             return;
         }
 
@@ -88,8 +91,8 @@ export default function CommentSection({ postId, comments, commentCounts = {}, o
                             post={{
                                 id: comment.id.toString(),
                                 creatorAddress: comment.creator,
-                                creatorHandle: undefined, // Could fetch if needed
-                                creatorAvatar: undefined, // Could fetch if needed
+                                creatorHandle: profiles[comment.creator]?.displayName,
+                                creatorAvatar: profiles[comment.creator]?.avatar,
                                 content: comment.content,
                                 image_url: comment.image_url,
                                 style: comment.style,

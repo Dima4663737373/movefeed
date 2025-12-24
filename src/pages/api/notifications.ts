@@ -6,10 +6,11 @@ import { Ed25519PublicKey } from "@aptos-labs/ts-sdk";
 export interface NotificationData {
     id: string;
     message: string;
-    type: 'success' | 'info';
+    type: 'success' | 'info' | 'error' | 'like' | 'comment' | 'repost' | 'follow' | 'mention';
     timestamp: number;
     read: boolean;
-    relatedUser?: string; // Address of the user who triggered the notification
+    relatedUser?: string;
+    data?: any; // For additional metadata like targetPostId
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -31,28 +32,89 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .select('*')
             .eq('user_address', user)
             .order('timestamp', { ascending: false })
-            .limit(50); // Limit to 50 as in original code logic
+            .limit(50);
 
         if (error) {
              return res.status(500).json({ error: error.message });
         }
 
-        // Map DB fields to NotificationData interface
-        // DB: id, user_address, message, type, timestamp, read, related_user
         const mappedNotifications = notifications.map(n => ({
             id: n.id,
             message: n.message,
-            type: n.type as 'success' | 'info',
+            type: n.type,
             timestamp: n.timestamp,
             read: n.read,
-            relatedUser: n.related_user
+            relatedUser: n.related_user,
+            data: n.data // Assuming 'data' column exists (JSONB)
         }));
 
         return res.status(200).json(mappedNotifications);
     } else if (req.method === 'POST') {
-        // This endpoint can be used to mark as read or delete
-        const { message, signature, publicKey } = req.body;
+        const { action, ...body } = req.body;
         
+        // Create Notification
+        if (action === 'create') {
+            const { targetAddress, type, message, relatedUser, data } = body;
+            
+            if (!targetAddress || !message) {
+                return res.status(400).json({ error: 'Missing targetAddress or message' });
+            }
+
+            const { data: newNotification, error } = await supabaseAdmin
+                .from('notifications')
+                .insert({
+                    user_address: targetAddress.toLowerCase(),
+                    type: type || 'info',
+                    message,
+                    related_user: relatedUser?.toLowerCase(),
+                    read: false,
+                    timestamp: Date.now(),
+                    data: data || {} // Store extra metadata
+                })
+                .select()
+                .single();
+
+            if (error) {
+                return res.status(500).json({ error: error.message });
+            }
+
+            return res.status(200).json(newNotification);
+        }
+
+        // Mark as read (existing logic)
+        const { userAddress: bodyUserAddress, notificationId: bodyNotificationId, action: bodyAction } = req.body;
+        
+        if (bodyUserAddress && bodyAction === 'mark_read') {
+             // Direct processing without signature
+             if (!supabaseAdmin) return res.status(500).json({ error: 'DB not initialized' });
+
+             const targetAddress = bodyUserAddress.toLowerCase();
+             
+             if (bodyNotificationId) {
+                 // Mark specific
+                 const { error } = await supabaseAdmin
+                     .from('notifications')
+                     .update({ read: true })
+                     .eq('id', bodyNotificationId)
+                     .eq('user_address', targetAddress); // Security check: Ensure it belongs to user
+                     
+                 if (error) return res.status(500).json({ error: error.message });
+             } else {
+                 // Mark all
+                 const { error } = await supabaseAdmin
+                     .from('notifications')
+                     .update({ read: true })
+                     .eq('user_address', targetAddress)
+                     .eq('read', false);
+                     
+                 if (error) return res.status(500).json({ error: error.message });
+             }
+             
+             return res.status(200).json({ success: true });
+        }
+
+        // Legacy/Signed path (kept for backward compatibility or other actions)
+        const { message, signature, publicKey } = req.body;
         if (!message || !signature || !publicKey) {
              return res.status(400).json({ error: 'Missing signature, message, or public key' });
         }
@@ -83,9 +145,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
              }
         }
 
-        const { userAddress, notificationId, action } = parsedMessage;
+        const { userAddress: msgUserAddress, notificationId: msgNotificationId, action: msgAction } = parsedMessage;
 
-        if (!userAddress) {
+        if (!msgUserAddress) {
              return res.status(400).json({ error: 'Missing userAddress' });
         }
 
@@ -100,21 +162,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 return lower.startsWith('0x') ? lower : `0x${lower}`;
             };
 
-            if (normalize(derivedAddress) !== normalize(userAddress)) {
+            if (normalize(derivedAddress) !== normalize(msgUserAddress)) {
                  return res.status(401).json({ error: 'Public key does not match user address' });
             }
         } catch (e: any) {
              return res.status(400).json({ error: `Invalid public key: ${e.message}` });
         }
 
-        const user = userAddress.toLowerCase();
+        const user = msgUserAddress.toLowerCase();
 
-        if (action === 'mark_read') {
-            if (notificationId) {
+        if (msgAction === 'mark_read') {
+            if (msgNotificationId) {
                 const { error } = await supabaseAdmin
                     .from('notifications')
                     .update({ read: true })
-                    .eq('id', notificationId)
+                    .eq('id', msgNotificationId)
                     .eq('user_address', user);
 
                 if (error) {
@@ -132,7 +194,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     return res.status(500).json({ error: error.message });
                 }
             }
-        } else if (action === 'clear') {
+        } else if (msgAction === 'clear') {
              // Delete all for user
              const { error } = await supabaseAdmin
                 .from('notifications')

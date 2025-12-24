@@ -31,54 +31,10 @@
         --card-border: #e2e8f0;
         --accent: #eab308;
         --accent-dim: rgba(234, 179, 8, 0.1);
-        --btn-text-primary: #ffffff;
+        --btn-text-primary: #000000;
         --input-bg: #ffffff;
         --input-border: #cbd5e1;
         --hover-bg: #f1f5f9;
-    }
-
-    /* Other themes mapped to standard variables but keeping their hues if needed, 
-     but flattening the effects */
-    [data-theme='graphite'] {
-        --bg-primary: #09090b;
-        --text-primary: #fafafa;
-        --text-secondary: #a1a1aa;
-        --card-bg: #09090b;
-        --card-border: #27272a;
-        --accent: #fafafa;
-        --accent-dim: rgba(255, 255, 255, 0.1);
-        --btn-text-primary: #000000;
-        --input-bg: #18181b;
-        --input-border: #27272a;
-        --hover-bg: #27272a;
-    }
-
-    [data-theme='blue'] {
-        --bg-primary: #020617;
-        --text-primary: #f8fafc;
-        --text-secondary: #94a3b8;
-        --card-bg: #020617;
-        --card-border: #1e293b;
-        --accent: #3b82f6;
-        --accent-dim: rgba(59, 130, 246, 0.1);
-        --btn-text-primary: #ffffff;
-        --input-bg: #0f172a;
-        --input-border: #1e293b;
-        --hover-bg: #1e293b;
-    }
-
-    [data-theme='emerald'] {
-        --bg-primary: #022c22;
-        --text-primary: #ecfdf5;
-        --text-secondary: #6ee7b7;
-        --card-bg: #022c22;
-        --card-border: #064e3b;
-        --accent: #10b981;
-        --accent-dim: rgba(16, 185, 129, 0.1);
-        --btn-text-primary: #000000;
-        --input-bg: #064e3b;
-        --input-border: #065f46;
-        --hover-bg: #064e3b;
     }
 
     body {
@@ -211,4 +167,24 @@
     background-image: linear-gradient(to right, var(--card-border) 1px, transparent 1px),
                       linear-gradient(to bottom, var(--card-border) 1px, transparent 1px);
     mask-image: radial-gradient(circle at center, black 40%, transparent 80%);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--card-border);
+    border-radius: 5px;
+    border: 2px solid var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
 }

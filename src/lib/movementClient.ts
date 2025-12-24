@@ -67,6 +67,257 @@ export async function getMovementBalance(address: string): Promise<number> {
   }
 }
 
+/**
+ * Get author tips from the Mines Donations contract
+ */
+export async function getAuthorTips(authorAddress: string): Promise<number> {
+  try {
+    const currentConfig = getCurrentNetworkConfig();
+    const minesAddress = currentConfig.minesAddress;
+
+    if (!minesAddress) return 0;
+
+    const client = getAptosClient();
+    const normalizedAddress = convertToMovementAddress(authorAddress);
+
+    try {
+        // Fetch Registry to get table handle
+        const registry = await client.getAccountResource({
+            accountAddress: minesAddress,
+            resourceType: `${minesAddress}::donations_v12::Registry`
+        }) as any;
+
+        if (!registry || !registry.total_tips || !registry.total_tips.handle) {
+            return 0;
+        }
+
+        const handle = registry.total_tips.handle;
+
+        // Fetch tip amount from table
+        try {
+            const item = await client.getTableItem({
+                handle,
+                data: {
+                    key_type: "address",
+                    value_type: "u64",
+                    key: normalizedAddress
+                }
+            });
+            return parseInt(item as string);
+        } catch (e: any) {
+            // Key not found means 0 tips
+            return 0;
+        }
+
+    } catch (e: any) {
+        if (e?.message?.includes("resource_not_found") || e?.error_code === "resource_not_found") {
+            return 0;
+        }
+        console.error("Error fetching author tips:", e);
+        return 0;
+    }
+  } catch (error) {
+    console.error("Error in getAuthorTips:", error);
+    return 0;
+  }
+}
+
+/**
+ * Get all authors from the Mines Donations contract
+ */
+export async function getAllAuthors(): Promise<string[]> {
+  try {
+    const currentConfig = getCurrentNetworkConfig();
+    const minesAddress = currentConfig.minesAddress;
+
+    if (!minesAddress) return [];
+
+    const client = getAptosClient();
+
+    try {
+        const registry = await client.getAccountResource({
+            accountAddress: minesAddress,
+            resourceType: `${minesAddress}::donations_v12::Registry`
+        }) as any;
+
+        return (registry.authors as string[]) || [];
+
+    } catch (e: any) {
+        if (e?.message?.includes("resource_not_found") || e?.error_code === "resource_not_found") {
+            return [];
+        }
+        console.error("Error fetching all authors:", e);
+        return [];
+    }
+  } catch (error) {
+    console.error("Error in getAllAuthors:", error);
+    return [];
+  }
+}
+
+/**
+ * Get all challenges from the contract
+ */
+export async function getChallenges(): Promise<any[]> {
+  try {
+    const currentConfig = getCurrentNetworkConfig();
+    const minesAddress = currentConfig.minesAddress;
+
+    if (!minesAddress) return [];
+
+    const client = getAptosClient();
+
+    try {
+      const resource = await client.getAccountResource({
+        accountAddress: minesAddress,
+        resourceType: `${minesAddress}::challenges_v12::ChallengeRegistry`
+      });
+
+      const data = resource as any;
+      if (data && data.challenges) {
+          return data.challenges;
+      }
+      return [];
+    } catch (e: any) {
+        if (e?.message?.includes("resource_not_found") || e?.error_code === "resource_not_found") {
+            return [];
+        }
+        console.error("Error fetching challenges:", e);
+        return [];
+    }
+  } catch (error) {
+    console.error("Error in getChallenges:", error);
+    return [];
+  }
+}
+
+/**
+ * Get user completed challenges
+ */
+export async function getUserCompletedChallenges(userAddress: string): Promise<string[]> {
+  try {
+    const currentConfig = getCurrentNetworkConfig();
+    const minesAddress = currentConfig.minesAddress;
+
+    if (!minesAddress) return [];
+
+    const client = getAptosClient();
+    const normalizedAddress = convertToMovementAddress(userAddress);
+
+    try {
+      const resource = await client.getAccountResource({
+        accountAddress: normalizedAddress,
+        resourceType: `${minesAddress}::challenges_v12::UserProgress`
+      });
+
+      const data = resource as any;
+      if (data && data.completed_challenges) {
+          return data.completed_challenges; // Array of challenge IDs (strings or numbers)
+      }
+      return [];
+    } catch (e: any) {
+        // User might not have initialized progress yet
+        if (e?.message?.includes("resource_not_found") || e?.error_code === "resource_not_found") {
+            return [];
+        }
+        console.error("Error fetching user challenges:", e);
+        return [];
+    }
+  } catch (error) {
+    console.error("Error in getUserCompletedChallenges:", error);
+    return [];
+  }
+}
+
+/**
+ * Get top authors sorted by tips
+ */
+export async function getTopAuthors(limit: number = 10): Promise<{address: string, totalTips: number}[]> {
+  try {
+    const authors = await getAllAuthors();
+    if (!authors || authors.length === 0) return [];
+
+    const authorTipsPromises = authors.map(async (addr) => {
+      const tips = await getAuthorTips(addr);
+      return { address: addr, totalTips: tips };
+    });
+
+    const authorTips = await Promise.all(authorTipsPromises);
+
+    // Sort descending
+    authorTips.sort((a, b) => b.totalTips - a.totalTips);
+
+    return authorTips.slice(0, limit);
+  } catch (error) {
+    console.error("Error in getTopAuthors:", error);
+    return [];
+  }
+}
+
+/**
+ * Get user badges from the Mines Badges contract
+ */
+export async function getUserBadges(userAddress: string): Promise<any[]> {
+  try {
+    const currentConfig = getCurrentNetworkConfig();
+    const minesAddress = currentConfig.minesAddress;
+
+    if (!minesAddress) return [];
+
+    const client = getAptosClient();
+    const normalizedAddress = convertToMovementAddress(userAddress);
+
+    // 1. Get user badge IDs
+    let userBadgeIds: string[] = [];
+    try {
+        const userBadgesRes = await client.getAccountResource({
+            accountAddress: normalizedAddress,
+            resourceType: `${minesAddress}::badges_v12::UserBadges`
+        }) as any;
+        userBadgeIds = userBadgesRes.badges || [];
+    } catch (e) {
+        // User has no badges
+        return [];
+    }
+
+    // 2. Get registry badges to map IDs to details
+    let allBadges: any[] = [];
+    try {
+        const registryRes = await client.getAccountResource({
+            accountAddress: minesAddress,
+            resourceType: `${minesAddress}::badges_v12::BadgeRegistry`
+        }) as any;
+        allBadges = registryRes.badges || [];
+    } catch (e) {
+        // Registry not found?
+        console.warn("BadgeRegistry not found");
+        return [];
+    }
+
+    // 3. Join
+    const result = [];
+    for (const badgeIdStr of userBadgeIds) {
+        const badgeId = parseInt(badgeIdStr);
+        const badgeDef = allBadges.find((b: any) => parseInt(b.id) === badgeId);
+        if (badgeDef) {
+            result.push({
+                id: badgeId,
+                name: typeof badgeDef.name === 'string' ? badgeDef.name : (badgeDef.name?.vec?.[0] || ''),
+                description: typeof badgeDef.description === 'string' ? badgeDef.description : (badgeDef.description?.vec?.[0] || ''),
+                image_url: typeof badgeDef.image_uri === 'string' ? badgeDef.image_uri : (badgeDef.image_uri?.vec?.[0] || ''),
+                timestamp: 0 // Timestamp not stored in V12
+            });
+        }
+    }
+
+    return result;
+
+  } catch (error) {
+    console.error("Error in getUserBadges:", error);
+    return [];
+  }
+}
+
 // Alias for convenience
 export const getBalance = getMovementBalance;
 
@@ -382,50 +633,55 @@ export async function getStats() {
         };
     }
 
-    const config = new AptosConfig({ 
-        network: Network.CUSTOM,
-        fullnode: currentConfig.rpcUrl 
-    });
-    const aptos = new Aptos(config);
-    const MODULE_NAME = "MoveFeedV3";
-
+    const client = getAptosClient();
+    
     // Note: We can't easily get totalTips (count of tipped posts) without indexing or fetching all posts (unscalable)
     // So we set it to 0 for now.
     const totalTips = 0;
 
-    // Get global stats from contract
+    // Get global stats from contract resources directly (since view functions are disabled)
     let totalVolume = 0;
     let topTipper = "None";
 
     try {
-      const payload = {
-        function: `${moduleAddress}::${MODULE_NAME}::get_global_tip_stats` as `${string}::${string}::${string}`,
-        functionArguments: [],
-      };
+        // Fetch Registry for total volume
+        try {
+            const registry = await client.getAccountResource({
+                accountAddress: moduleAddress,
+                resourceType: `${moduleAddress}::donations_v12::Registry`
+            }) as any;
+            totalVolume = parseInt(registry.global_total || "0");
+        } catch (e) {
+            // Resource might not exist yet
+        }
 
-      const result = await aptos.view({ payload });
-      console.log('📊 Contract stats result:', result);
+        // Fetch TopTipperStats for top tipper
+        try {
+            const stats = await client.getAccountResource({
+                accountAddress: moduleAddress,
+                resourceType: `${moduleAddress}::donations_v12::TopTipperStats`
+            }) as any;
+            
+            if (stats.top_tipper && stats.top_tipper !== "0x0" && stats.top_tipper !== "0x0000000000000000000000000000000000000000000000000000000000000000") {
+                topTipper = stats.top_tipper;
+            }
+        } catch (e) {
+            // Resource might not exist yet
+        }
 
-      // Result is [total_volume, top_tipper, top_tipper_amount]
-      const totalVolumeOctas = parseInt(result[0] as string);
-      const topTipperAddress = result[1] as string;
+      const totalVolumeOctas = totalVolume;
 
       console.log('📊 Contract volume (octas):', totalVolumeOctas);
       console.log('📊 Contract volume (MOVE):', octasToMove(totalVolumeOctas));
-
-      totalVolume = octasToMove(totalVolumeOctas);
-
-      if (topTipperAddress !== "0x0" && topTipperAddress !== "0x0000000000000000000000000000000000000000000000000000000000000000") {
-        topTipper = topTipperAddress;
-      }
       
       return {
-        totalTips,
-        totalVolume,
+        totalTips, // Placeholder
+        totalVolume: octasToMove(totalVolumeOctas),
         topTipper
       };
-    } catch (e) {
-      console.error("Error fetching stats from contract:", e);
+
+    } catch (error) {
+      console.error("Error fetching global stats:", error);
       return {
         totalTips: 0,
         totalVolume: 0,
@@ -440,4 +696,68 @@ export async function getStats() {
       topTipper: "None"
     };
   }
+}
+
+/**
+ * Get user tip statistics from blockchain
+ * Returns: [total_sent, total_received, tips_sent_count]
+ */
+export async function getUserTipStats(userAddress: string): Promise<{
+    totalSent: number;
+    totalReceived: number;
+    tipsSentCount: number;
+}> {
+    if (!userAddress) {
+        return { totalSent: 0, totalReceived: 0, tipsSentCount: 0 };
+    }
+
+    const currentConfig = getCurrentNetworkConfig();
+    const minesAddress = currentConfig.minesAddress;
+
+    if (!minesAddress) {
+        return { totalSent: 0, totalReceived: 0, tipsSentCount: 0 };
+    }
+
+    try {
+        // 1. Get total received using our helper
+        const totalReceived = await getAuthorTips(userAddress);
+
+        // 2. Get total sent from TopTipperStats
+        let totalSent = 0;
+        const client = getAptosClient();
+        
+        try {
+            const stats = await client.getAccountResource({
+                accountAddress: minesAddress,
+                resourceType: `${minesAddress}::donations_v12::TopTipperStats`
+            }) as any;
+
+            if (stats && stats.sent_counts && stats.sent_counts.handle) {
+                try {
+                    const item = await client.getTableItem({
+                        handle: stats.sent_counts.handle,
+                        data: {
+                            key_type: "address",
+                            value_type: "u64",
+                            key: convertToMovementAddress(userAddress)
+                        }
+                    });
+                    totalSent = parseInt(item as string);
+                } catch (e) {
+                    // Not found in sent_counts table means 0 sent
+                }
+            }
+        } catch (e: any) {
+            // Resource not found or other error
+        }
+
+        return {
+            totalSent,
+            totalReceived,
+            tipsSentCount: 0, // Not tracked on-chain
+        };
+    } catch (error: any) {
+        console.error("Error fetching user tip stats:", error);
+        return { totalSent: 0, totalReceived: 0, tipsSentCount: 0 };
+    }
 }

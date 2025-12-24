@@ -51,7 +51,7 @@ export async function buildTipPostPayload(
 
     const payload: any = {
         data: {
-            function: `${TIPJAR_MODULE_ADDRESS}::MoveFeedV3::tip_post`,
+            function: `${TIPJAR_MODULE_ADDRESS}::move_feed_v12::tip_post`,
             typeArguments: [],
             functionArguments: [
                 formattedCreatorAddress,
@@ -142,8 +142,8 @@ export async function buildCreatePostPayload(
     }
 
     // Map style to number (0 = minimal, 1 = gradient, 2 = bold)
-    const styleMap = { minimal: 0, gradient: 1, bold: 2 };
-    const styleValue = styleMap[style];
+    // const styleMap = { minimal: 0, gradient: 1, bold: 2 };
+    // const styleValue = styleMap[style];
 
     // Get gas estimation if not provided
     let gasConfig = gasEstimation;
@@ -157,11 +157,11 @@ export async function buildCreatePostPayload(
 
     return {
         data: {
-            function: `${TIPJAR_MODULE_ADDRESS}::MoveFeed::create_post`,
+            function: `${TIPJAR_MODULE_ADDRESS}::move_feed_v12::create_post`,
             typeArguments: [],
             functionArguments: [
-                Array.from(new TextEncoder().encode(content)), // content as vector<u8>
-                styleValue.toString(),
+                content, // Pass string directly, SDK handles it
+                style,   // Pass style as image_url
             ],
         },
         options: {

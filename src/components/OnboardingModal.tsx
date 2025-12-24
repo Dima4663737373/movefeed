@@ -62,7 +62,7 @@ export default function OnboardingModal({ isOpen, onClose, balance, hasTipped, a
                         {/* <span className="text-xs font-bold text-yellow-400 uppercase tracking-wider">Welcome to Wave 3</span> */}
                     </div>
                     <h2 className="text-2xl font-bold text-white">Let's get started</h2>
-                    <p className="text-neutral-400 mt-2">Complete these steps to become a MoveFeed creator.</p>
+                    <p className="text-neutral-400 mt-2">Complete these steps to become a MoveX creator.</p>
                 </div>
 
                 {/* Steps */}

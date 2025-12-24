@@ -57,12 +57,13 @@ Set-Location "move"
 
 try {
     # Added --bytecode-version 6 for Movement Mainnet compatibility
-    aptos move publish --named-addresses tipjar_addr=$address --url $RPC_URL --assume-yes --bytecode-version 6
+    aptos move publish --named-addresses mines=$address --url $RPC_URL --assume-yes --bytecode-version 6
     
     Write-Host ""
     Write-Host "✅ Deployment Successful!" -ForegroundColor Green
     Write-Host "Please update src/lib/movement.ts with:" -ForegroundColor Yellow
     Write-Host "moduleAddress: ""$address""" -ForegroundColor White
+    Write-Host "minesAddress: ""$address""" -ForegroundColor White
 } catch {
     Write-Error "Deployment failed. Check if you have enough MOVE tokens for gas."
     Write-Error $_

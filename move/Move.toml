@@ -1,22 +1,10 @@
 [package]
-name = "TipJar"
+name = "MinesV3"
 version = "1.0.0"
+upgrade_policy = "compatible"
 
 [addresses]
-tipjar_addr = "0x9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204"
+mines = "0xed56c3467b6bed0432a489e6f5adf9e9580b1bf3e3509694053149c42dc23020"
 
-[dependencies.AptosFramework]
-git = "https://github.com/movementlabsxyz/aptos-core"
-rev = "ab80decffca5dd83991b5783073fe66ddde2836d"
-subdir = "aptos-move/framework/aptos-framework"
-
-[dependencies.AptosStdlib]
-git = "https://github.com/movementlabsxyz/aptos-core"
-rev = "ab80decffca5dd83991b5783073fe66ddde2836d"
-subdir = "aptos-move/framework/aptos-stdlib"
-
-[dependencies.MoveStdlib]
-git = "https://github.com/movementlabsxyz/aptos-core"
-rev = "ab80decffca5dd83991b5783073fe66ddde2836d"
-subdir = "aptos-move/framework/move-stdlib"
-
+[dependencies]
+AptosFramework = { git = "https://github.com/movementlabsxyz/aptos-core.git", subdir = "aptos-move/framework/aptos-framework", rev = "movement" }

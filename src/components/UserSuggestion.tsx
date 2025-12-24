@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { formatMovementAddress } from '@/lib/movement';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
+import { sendSocialNotification } from '@/contexts/SocialActivityContext';
 
 interface UserSuggestionProps {
     creator: string;
@@ -46,6 +47,15 @@ export default function UserSuggestion({ creator, currentUserAddress, profile }:
             if (res.ok) {
                 const data = await res.json();
                 setIsFollowing(data.isFollowing);
+
+                // Notify user if followed
+                if (data.isFollowing) {
+                    sendSocialNotification(creator, {
+                        type: 'follow',
+                        actorAddress: account.address.toString(),
+                        content: 'started following you'
+                    });
+                }
             } else {
                 console.error("Follow failed", await res.text());
             }

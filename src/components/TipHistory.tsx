@@ -11,6 +11,7 @@ import Link from "next/link";
 import { formatMovementAddress } from "@/lib/movement";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getExplorerLink, ExplorerType } from "@/lib/explorer";
+import { getDisplayName } from "@/lib/microThreadsClient";
 
 interface Tip {
     sender: string;
@@ -33,7 +34,45 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
     const [activeTab, setActiveTab] = useState<Tab>('all');
     const [currentPage, setCurrentPage] = useState(0);
     const [explorerType, setExplorerType] = useState<ExplorerType>('movement');
+    const [names, setNames] = useState<Record<string, string>>({});
     const safeTips = tips || [];
+
+    useEffect(() => {
+        const fetchNames = async () => {
+            const uniqueAddresses = new Set<string>();
+            safeTips.forEach(tip => {
+                 const isSent = (tip as any).type === 'sent';
+                 const otherParty = isSent ? tip.receiver : tip.sender;
+                 if (otherParty && otherParty !== 'Tips on Post') {
+                     uniqueAddresses.add(otherParty);
+                 }
+            });
+
+            if (uniqueAddresses.size === 0) return;
+
+            // Only fetch names we don't have yet
+            const addressesToFetch = Array.from(uniqueAddresses).filter(addr => !names[addr]);
+            if (addressesToFetch.length === 0) return;
+
+            const newNames: Record<string, string> = {};
+            await Promise.all(addressesToFetch.map(async (addr) => {
+                try {
+                    const name = await getDisplayName(addr);
+                    if (name) {
+                        newNames[addr] = name;
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }));
+
+            if (Object.keys(newNames).length > 0) {
+                setNames(prev => ({ ...prev, ...newNames }));
+            }
+        };
+        fetchNames();
+    }, [safeTips]);
+
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -99,67 +138,6 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
 
     return (
         <div className="card">
-            <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-semibold flex items-center gap-2">
-                    <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    {t.activity}
-                </h3>
-
-                {/* Tabs */}
-                {account && (
-                    <div className="flex items-center gap-4">
-                        <button
-                            onClick={() => {
-                                console.log('Clear Activity clicked');
-                                if (confirm(t.clearActivityConfirm)) {
-                                    console.log('Clearing history...');
-
-                                    // 1. Clear sent tips
-                                    localStorage.removeItem('sent_tips_history');
-
-                                    // 2. Snapshot received tips
-                                    const receivedSnapshot: Record<string, number> = {};
-                                    tips.forEach(tip => {
-                                        if ((tip as any).type === 'received') {
-                                            receivedSnapshot[(tip as any).postId] = tip.amount;
-                                        }
-                                    });
-                                    localStorage.setItem('received_tips_snapshot', JSON.stringify(receivedSnapshot));
-
-                                    // 3. Set clear timestamp
-                                    localStorage.setItem('received_tips_cleared_at', Math.floor(Date.now() / 1000).toString());
-
-                                    console.log('Dispatching tip_sent event');
-                                    window.dispatchEvent(new Event('tip_sent'));
-
-                                    // Force reload to ensure clean state
-                                    window.location.reload();
-                                }
-                            }}
-                            className="text-xs text-neutral-500 hover:text-red-400 transition-colors"
-                        >
-                            {t.clearActivity}
-                        </button>
-                        <div className="flex bg-neutral-800/50 rounded-lg p-1">
-                            {(['all', 'sent', 'received'] as Tab[]).map((tab) => (
-                                <button
-                                    key={tab}
-                                    onClick={() => handleTabChange(tab)}
-                                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === tab
-                                        ? 'bg-yellow-400 text-black shadow-lg'
-                                        : 'text-neutral-400 hover:text-white hover:bg-white/5'
-                                        }`}
-                                >
-                                    {t[tab]}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-
             {filteredTips.length === 0 ? (
                 <div className="text-center py-8">
                     <div className="w-12 h-12 mx-auto mb-4 bg-neutral-800 rounded-full flex items-center justify-center">
@@ -176,7 +154,7 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
                 <>
                     <div className="overflow-x-auto pr-2">
                         <table className="w-full text-left relative">
-                            <thead className="bg-zinc-950">
+                            <thead>
                                 <tr className="text-neutral-500 text-base border-b border-neutral-800">
                                     <th className="pb-3 font-medium">
                                         {activeTab === 'sent' ? t.recipient : t.sender}
@@ -203,7 +181,7 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
                                                             href={`/${otherParty}`}
                                                             className="text-yellow-400 hover:underline hover:text-yellow-300 transition-colors"
                                                         >
-                                                            {formatMovementAddress(otherParty || "")}
+                                                            {names[otherParty || ""] || formatMovementAddress(otherParty || "")}
                                                         </Link>
                                                     ) : (
                                                         <a
@@ -230,7 +208,7 @@ export default function TipHistory({ tips, loading }: TipHistoryProps) {
                                                     rel="noopener noreferrer"
                                                     className="hover:text-yellow-400 hover:underline transition-colors"
                                                 >
-                                                    {new Date(tip.timestamp * 1000).toLocaleTimeString()}
+                                                    {new Date(tip.timestamp * 1000).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                                 </a>
                                             </td>
                                             <td className="py-4 text-right">

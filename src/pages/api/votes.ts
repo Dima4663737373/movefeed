@@ -45,17 +45,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     }
                 }
 
-                return res.status(200).json({ up, down, userVote });
+                // Explicitly return null if no vote found
+                return res.status(200).json({ up, down, userVote: userVote || null });
             }
 
-            return res.status(200).json({});
+            return res.status(200).json({ up: 0, down: 0, userVote: null });
             
         } else if (req.method === 'POST') {
             // Allow simplified voting without signature (as per user request)
             let postId, creatorAddress, type, userAddress;
 
             // Try to parse from top-level body first (simplified mode)
-            if (req.body.postId && req.body.creatorAddress && req.body.type && req.body.userAddress) {
+            if (req.body.postId !== undefined && req.body.creatorAddress && req.body.type && req.body.userAddress) {
                 ({ postId, creatorAddress, type, userAddress } = req.body);
             } else {
                  // Fallback to legacy/signed mode if params are missing
@@ -106,11 +107,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                           return res.status(400).json({ error: `Invalid public key: ${e.message}` });
                      }
                  } else {
-                      return res.status(400).json({ error: 'Missing parameters. Provide postId, creatorAddress, type, userAddress directly or via signed message.' });
+                      const missing = [];
+                      if (req.body.postId === undefined) missing.push('postId');
+                      if (!req.body.creatorAddress) missing.push('creatorAddress');
+                      if (!req.body.type) missing.push('type');
+                      if (!req.body.userAddress) missing.push('userAddress');
+                      return res.status(400).json({ error: `Missing parameters: ${missing.join(', ')}. Provide params directly or via signed message.` });
                  }
             }
 
-            if (!postId || !creatorAddress || !['up', 'down'].includes(type) || !userAddress) {
+            if (postId === undefined || !creatorAddress || !['up', 'down'].includes(type) || !userAddress) {
                 return res.status(400).json({ error: 'Invalid request. Missing postId, creatorAddress, type, or userAddress.' });
             }
 

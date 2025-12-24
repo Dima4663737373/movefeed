@@ -22,6 +22,7 @@
     "dompurify": "^3.3.0",
     "emoji-picker-react": "^4.16.1",
     "formidable": "^3.5.4",
+    "framer-motion": "^12.23.26",
     "got": "^14.6.5",
     "next": "^16.0.10",
     "react": "^18.3.1",

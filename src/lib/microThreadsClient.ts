@@ -1,12 +1,12 @@
 /**
  * MicroThreads Client
  * 
- * Client functions for interacting with the MoveFeed smart contract
+ * Client functions for interacting with the MoveX smart contract
  */
 
 import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
 import { InputTransactionData } from "@aptos-labs/wallet-adapter-react";
-import { getCurrentNetworkConfig, getModuleAddress, convertToMovementAddress } from "./movement";
+import { getCurrentNetworkConfig, getModuleAddress, convertToMovementAddress, isValidMovementAddress } from "./movement";
 import { getGasEstimation } from "./movementClient"; // Keep for future use or remove if strict
 
 export interface OnChainPost {
@@ -35,7 +35,7 @@ function getClient() {
     return new Aptos(config);
 }
 
-const MODULE_NAME = "MoveFeedV3";
+const MODULE_NAME = "move_feed_v12";
 
 // Helper to safely extract string from Move String or raw string
 const getString = (val: any): string => {
@@ -96,7 +96,7 @@ export async function createPostOnChain(
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_post`,
             typeArguments: [],
-            functionArguments: [content, imageUrl, style],
+            functionArguments: [content, imageUrl],
         },
     };
 
@@ -124,7 +124,7 @@ export async function createPostOnChain(
         if (result.events) {
             for (const event of result.events) {
                 // Look for PostCreated event
-                if (event.type.includes("PostCreatedEvent") || event.type.includes("create_post")) {
+                if (event.type.includes("PostCreatedEvent") || event.type.includes("create_post") || event.type.includes("PostEvent")) {
                     // Try to get global post_id first, then fallback to id
                     if (event.data.post_id !== undefined) return Number(event.data.post_id);
                     if (event.data.id !== undefined) return Number(event.data.id);
@@ -156,7 +156,7 @@ export async function createCommentOnChain(
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_comment`,
             typeArguments: [],
-            functionArguments: [parentId.toString(), content, imageUrl],
+            functionArguments: [parentId.toString(), parentId, content, imageUrl],
         },
     };
 
@@ -235,6 +235,29 @@ export async function editPostOnChain(
 
 
 /**
+ * Get the total number of global posts
+ */
+export async function getGlobalPostsCount(): Promise<number> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return 0;
+
+    try {
+        const client = getClient();
+        const feed = await client.getAccountResource({
+            accountAddress: MODULE_ADDRESS,
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::GlobalFeed`
+        }) as any;
+        return Number(feed.post_counter);
+    } catch (error: any) {
+        if (error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+             return 0;
+        }
+        console.error("Error fetching global post count:", error);
+        return 0;
+    }
+}
+
+/**
  * Get a single post by global ID
  */
 export async function getPost(postId: number): Promise<OnChainPost | null> {
@@ -242,48 +265,38 @@ export async function getPost(postId: number): Promise<OnChainPost | null> {
     if (!MODULE_ADDRESS) return null;
 
     try {
-        // Try to fetch specific post directly using our new function
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_post_by_id` as `${string}::${string}::${string}`,
-            functionArguments: [postId.toString()], // Ensure string for u64
-        };
-
         const client = getClient();
-        const result = await client.view({ payload });
-        console.log(`getPost(${postId}) raw result:`, result);
+        const feed = await client.getAccountResource({
+            accountAddress: MODULE_ADDRESS,
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::GlobalFeed`
+        }) as any;
 
-        // Handle different return types
-        let post: any = null;
-
-        // Case 1: Returns vector<Post> (array)
-        if (Array.isArray(result[0])) {
-            const arr = result[0] as any[];
-            if (arr.length > 0) post = arr[0];
-        } 
-        // Case 2: Returns Post (object) directly
-        else if (result[0] && typeof result[0] === 'object') {
-            post = result[0];
-        }
+        const posts = feed.posts as any[];
+        // Find post with id
+        const post = posts.find((p: any) => Number(p.id) === postId);
 
         if (post) {
             return {
                 id: Number(post.id),
-                global_id: post.global_id !== undefined ? Number(post.global_id) : undefined,
-                creator: post.creator,
+                global_id: post.global_id !== undefined ? Number(post.global_id) : Number(post.id),
+                creator: post.author || post.creator,
                 content: getString(post.content),
                 image_url: getString(post.image_url),
-                style: Number(post.style),
-                total_tips: Number(post.total_tips),
+                style: Number(post.style || 1),
+                total_tips: 0, // Not tracked in V12 Post struct
                 timestamp: Number(post.timestamp),
-                is_deleted: post.is_deleted || false,
-                updated_at: Number(post.updated_at || post.timestamp),
-                last_tip_timestamp: Number(post.last_tip_timestamp || 0),
-                parent_id: Number(post.parent_id || 0),
-                is_comment: post.is_comment || false,
+                is_deleted: false,
+                updated_at: Number(post.timestamp),
+                last_tip_timestamp: 0,
+                parent_id: 0,
+                is_comment: false,
             };
         }
         return null;
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+             return null;
+        }
         console.error(`Error fetching post ${postId}:`, error);
         return null;
     }
@@ -297,35 +310,36 @@ export async function getCommentsForPost(parentId: number): Promise<OnChainPost[
     if (!MODULE_ADDRESS) return [];
 
     try {
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_comments_for_post` as `${string}::${string}::${string}`,
-            functionArguments: [parentId.toString()], // Ensure string for u64
-        };
-
         const client = getClient();
-        const result = await client.view({ payload });
-        const posts = result[0] as any[];
+        const feed = await client.getAccountResource({
+            accountAddress: MODULE_ADDRESS,
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::GlobalFeed`
+        }) as any;
 
-        return posts
-            .map((post: any) => ({
-                id: Number(post.id),
-                global_id: post.global_id !== undefined ? Number(post.global_id) : undefined,
-                creator: post.creator,
-                content: getString(post.content),
-                image_url: getString(post.image_url),
-                style: Number(post.style),
-                total_tips: Number(post.total_tips),
-                timestamp: Number(post.timestamp),
-                is_deleted: post.is_deleted || false,
-                updated_at: Number(post.updated_at || post.timestamp),
-                last_tip_timestamp: Number(post.last_tip_timestamp || 0),
-                parent_id: Number(post.parent_id || 0),
-                is_comment: post.is_comment || false,
-            }))
-            .filter((post: OnChainPost) => !post.is_deleted)
-            .sort((a, b) => b.timestamp - a.timestamp);
-    } catch (error) {
-        console.error("Error fetching comments:", error);
+        const allComments = feed.comments as any[];
+        const comments = allComments.filter((c: any) => Number(c.parent_id) === parentId);
+
+        return comments.map((comment: any) => ({
+            id: Number(comment.id),
+            global_id: Number(comment.id),
+            creator: comment.author,
+            content: getString(comment.content),
+            image_url: "", // Comments don't have images in V12
+            style: 1,
+            total_tips: 0,
+            timestamp: Number(comment.timestamp),
+            is_deleted: false,
+            updated_at: Number(comment.timestamp),
+            last_tip_timestamp: 0,
+            parent_id: Number(comment.parent_id),
+            is_comment: true,
+        })).sort((a, b) => b.timestamp - a.timestamp); // Newest first
+
+    } catch (error: any) {
+        if (error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+             return [];
+        }
+        console.error(`Error fetching comments for post ${parentId}:`, error);
         return [];
     }
 }
@@ -346,43 +360,50 @@ async function retry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promis
 }
 
 /**
- * Get all posts from all users (paginated)
+ * Get global posts with pagination
  */
-export async function getAllPostsPaginated(start: number, limit: number): Promise<OnChainPost[]> {
+export async function getGlobalPosts(page: number = 0, limit: number = 10): Promise<OnChainPost[]> {
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) return [];
 
     try {
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_posts_paginated` as `${string}::${string}::${string}`,
-            functionArguments: [start, limit],
-        };
-
         const client = getClient();
-        const result = await retry(() => client.view({ payload }));
-        const posts = result[0] as any[];
+        const feed = await client.getAccountResource({
+            accountAddress: MODULE_ADDRESS,
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::GlobalFeed`
+        }) as any;
 
-        return posts
-            .map((post: any) => ({
-                id: Number(post.id),
-                global_id: post.global_id !== undefined ? Number(post.global_id) : undefined,
-                creator: post.creator,
-                content: getString(post.content),
-                image_url: getString(post.image_url),
-                style: Number(post.style),
-                total_tips: Number(post.total_tips),
-                timestamp: Number(post.timestamp),
-                is_deleted: post.is_deleted || false,
-                updated_at: Number(post.updated_at || post.timestamp),
-                last_tip_timestamp: Number(post.last_tip_timestamp || 0),
-                parent_id: Number(post.parent_id || 0),
-                is_comment: post.is_comment || false,
-            }))
-            .filter((post: OnChainPost) => !post.is_deleted)
-            // Note: Caller is responsible for sorting if needed, but these come back in ID order
-            // .sort((a, b) => b.timestamp - a.timestamp); 
-    } catch (error) {
-        console.error("Error fetching all posts paginated:", error);
+        const allPosts = feed.posts as any[];
+        
+        // Sort by ID descending (assuming larger ID = newer) or timestamp
+        // Using ID is safer if timestamp is same
+        allPosts.sort((a: any, b: any) => Number(b.id) - Number(a.id));
+
+        const start = page * limit;
+        const end = start + limit;
+        const pagePosts = allPosts.slice(start, end);
+
+        return pagePosts.map((post: any) => ({
+             id: Number(post.id),
+             global_id: Number(post.id),
+             creator: post.author,
+             content: getString(post.content),
+             image_url: getString(post.image_url),
+             style: 1,
+             total_tips: 0,
+             timestamp: Number(post.timestamp),
+             is_deleted: false,
+             updated_at: Number(post.timestamp),
+             last_tip_timestamp: 0,
+             parent_id: 0,
+             is_comment: false,
+        }));
+
+    } catch (error: any) {
+        if (error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+             return [];
+        }
+        console.error("Error fetching global posts:", error);
         return [];
     }
 }
@@ -391,37 +412,50 @@ export async function getAllPostsPaginated(start: number, limit: number): Promis
  * Get posts by a specific user (paginated)
  */
 export async function getUserPostsPaginated(userAddress: string, start: number, limit: number): Promise<OnChainPost[]> {
+    if (!isValidMovementAddress(userAddress)) return [];
+
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) return [];
 
     try {
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_user_posts_paginated` as `${string}::${string}::${string}`,
-            functionArguments: [convertToMovementAddress(userAddress), start, limit],
-        };
-
         const client = getClient();
-        const result = await client.view({ payload });
-        const posts = result[0] as any[];
+        const feed = await client.getAccountResource({
+            accountAddress: MODULE_ADDRESS,
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::GlobalFeed`
+        }) as any;
 
-        return posts
-            .map((post: any) => ({
-                id: Number(post.id),
-                global_id: post.global_id !== undefined ? Number(post.global_id) : undefined,
-                creator: post.creator,
-                content: getString(post.content),
-                image_url: getString(post.image_url),
-                style: Number(post.style),
-                total_tips: Number(post.total_tips),
-                timestamp: Number(post.timestamp),
-                is_deleted: post.is_deleted || false,
-                updated_at: Number(post.updated_at || post.timestamp),
-                last_tip_timestamp: Number(post.last_tip_timestamp || 0),
-                parent_id: Number(post.parent_id || 0),
-                is_comment: post.is_comment || false,
-            }))
-            .filter((post: OnChainPost) => !post.is_deleted);
-    } catch (error) {
+        const allPosts = feed.posts as any[];
+        const normalizedUserAddr = convertToMovementAddress(userAddress);
+
+        // Filter by author
+        const userPosts = allPosts.filter((p: any) => p.author === normalizedUserAddr);
+        
+        // Sort descending
+        userPosts.sort((a: any, b: any) => Number(b.id) - Number(a.id));
+
+        // Slice
+        const pagePosts = userPosts.slice(start, start + limit);
+
+        return pagePosts.map((post: any) => ({
+            id: Number(post.id),
+            global_id: Number(post.id),
+            creator: post.author,
+            content: getString(post.content),
+            image_url: getString(post.image_url),
+            style: 1,
+            total_tips: Number(post.total_tips || 0),
+            timestamp: Number(post.timestamp),
+            is_deleted: false,
+            updated_at: Number(post.timestamp),
+            last_tip_timestamp: 0,
+            parent_id: 0,
+            is_comment: false,
+        }));
+
+    } catch (error: any) {
+        if (error?.status === 404 || error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+             return [];
+        }
         console.error("Error fetching user posts paginated:", error);
         return [];
     }
@@ -450,7 +484,7 @@ export async function getAllPosts(): Promise<OnChainPost[]> {
         return posts
             .map((post: any) => ({
                 id: Number(post.id),
-                creator: post.creator,
+                creator: post.author || post.creator,
                 content: getString(post.content),
                 image_url: getString(post.image_url),
                 style: Number(post.style),
@@ -464,7 +498,10 @@ export async function getAllPosts(): Promise<OnChainPost[]> {
             }))
             .filter((post: OnChainPost) => !post.is_deleted)
             .sort((a, b) => b.timestamp - a.timestamp);
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.status === 404 || error?.message?.includes("module_not_found") || error?.error_code === "module_not_found") {
+             return [];
+        }
         console.error("Error fetching all posts:", error);
         return [];
     }
@@ -475,6 +512,8 @@ export async function getAllPosts(): Promise<OnChainPost[]> {
  * @deprecated Use getUserPostsPaginated instead for scalability
  */
 export async function getUserPosts(userAddress: string): Promise<OnChainPost[]> {
+    if (!isValidMovementAddress(userAddress)) return [];
+
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) return [];
 
@@ -491,7 +530,7 @@ export async function getUserPosts(userAddress: string): Promise<OnChainPost[]> 
         return posts
             .map((post: any) => ({
                 id: Number(post.id),
-                creator: post.creator,
+                creator: post.author || post.creator,
                 content: getString(post.content),
                 image_url: getString(post.image_url),
                 style: Number(post.style),
@@ -505,7 +544,10 @@ export async function getUserPosts(userAddress: string): Promise<OnChainPost[]> 
             }))
             .filter((post: OnChainPost) => !post.is_deleted)
             .sort((a, b) => b.timestamp - a.timestamp);
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.status === 404 || error?.message?.includes("module_not_found") || error?.error_code === "module_not_found") {
+             return [];
+        }
         console.error("Error fetching user posts:", error);
         return [];
     }
@@ -515,42 +557,28 @@ export async function getUserPosts(userAddress: string): Promise<OnChainPost[]> 
  * Get user's post count
  */
 export async function getUserPostsCount(userAddress: string): Promise<number> {
+    if (!isValidMovementAddress(userAddress)) return 0;
+
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) return 0;
 
     try {
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_user_posts_count` as `${string}::${string}::${string}`,
-            functionArguments: [convertToMovementAddress(userAddress)],
-        };
-
         const client = getClient();
-        const result = await client.view({ payload });
-        return Number(result[0]);
-    } catch (error) {
+        const feed = await client.getAccountResource({
+            accountAddress: MODULE_ADDRESS,
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::GlobalFeed`
+        }) as any;
+
+        const allPosts = feed.posts as any[];
+        const normalizedUserAddr = convertToMovementAddress(userAddress);
+
+        return allPosts.filter((p: any) => p.author === normalizedUserAddr).length;
+
+    } catch (error: any) {
+        if (error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+             return 0;
+        }
         console.error("Error fetching user posts count:", error);
-        return 0;
-    }
-}
-
-/**
- * Get total global posts count
- */
-export async function getGlobalPostsCount(): Promise<number> {
-    const MODULE_ADDRESS = getModuleAddress();
-    if (!MODULE_ADDRESS) return 0;
-
-    try {
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_global_posts_count` as `${string}::${string}::${string}`,
-            functionArguments: [],
-        };
-
-        const client = getClient();
-        const result = await client.view({ payload });
-        return Number(result[0]);
-    } catch (error) {
-        console.error("Error fetching global posts count:", error);
         return 0;
     }
 }
@@ -559,19 +587,24 @@ export async function getGlobalPostsCount(): Promise<number> {
  * Get display name for a user
  */
 export async function getDisplayName(userAddress: string): Promise<string> {
+    if (!isValidMovementAddress(userAddress)) return "";
+
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) return "";
 
     try {
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_profile` as `${string}::${string}::${string}`,
-            functionArguments: [convertToMovementAddress(userAddress)],
-        };
-
         const client = getClient();
-        const result = await client.view({ payload });
-        return getString(result[0]); // Use getString to handle potential object wrapper
-    } catch (error) {
+        const profile = await client.getAccountResource({
+            accountAddress: convertToMovementAddress(userAddress),
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::Profile`
+        }) as any;
+
+        return getString(profile.name);
+    } catch (error: any) {
+        // Silence 404s (Profile not initialized)
+        if (error?.status === 404 || error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+             return "";
+        }
         console.error("Error fetching display name:", error);
         return "";
     }
@@ -586,37 +619,125 @@ export async function getUserTipStats(userAddress: string): Promise<{
     totalReceived: number;
     tipsSentCount: number;
 }> {
+    if (!isValidMovementAddress(userAddress)) {
+        return { totalSent: 0, totalReceived: 0, tipsSentCount: 0 };
+    }
+
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) {
         return { totalSent: 0, totalReceived: 0, tipsSentCount: 0 };
     }
 
     try {
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_user_tip_stats` as `${string}::${string}::${string}`,
-            functionArguments: [convertToMovementAddress(userAddress)],
-        };
-
         const client = getClient();
-        const result = await client.view({ payload });
-        const stats = result as [string, string, string];
+        const normalizedAddress = convertToMovementAddress(userAddress);
+        let totalReceived = 0;
+        let totalSent = 0;
+        const tipsSentCount = 0; // Not available via simple resource lookup without indexer
+
+        // 1. Get Total Received (from Registry)
+        try {
+            const registry = await client.getAccountResource({
+                accountAddress: MODULE_ADDRESS,
+                resourceType: `${MODULE_ADDRESS}::donations_v12::Registry`
+            }) as any;
+
+            if (registry && registry.total_tips && registry.total_tips.handle) {
+                const item = await client.getTableItem({
+                    handle: registry.total_tips.handle,
+                    data: {
+                        key_type: "address",
+                        value_type: "u64",
+                        key: normalizedAddress
+                    }
+                });
+                totalReceived = parseInt(item as string);
+            }
+        } catch (e) {
+            // Ignore (user might not have received any tips)
+        }
+
+        // 2. Get Total Sent (from TopTipperStats)
+        try {
+            const stats = await client.getAccountResource({
+                accountAddress: MODULE_ADDRESS,
+                resourceType: `${MODULE_ADDRESS}::donations_v12::TopTipperStats`
+            }) as any;
+
+            if (stats && stats.sent_counts && stats.sent_counts.handle) {
+                const item = await client.getTableItem({
+                    handle: stats.sent_counts.handle,
+                    data: {
+                        key_type: "address",
+                        value_type: "u64",
+                        key: normalizedAddress
+                    }
+                });
+                totalSent = parseInt(item as string);
+            }
+        } catch (e) {
+            // Ignore
+        }
 
         return {
-            totalSent: parseInt(stats[0]),
-            totalReceived: parseInt(stats[1]),
-            tipsSentCount: parseInt(stats[2]),
+            totalSent,
+            totalReceived,
+            tipsSentCount,
         };
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.status === 404 || error?.message?.includes("module_not_found") || error?.error_code === "module_not_found") {
+             return { totalSent: 0, totalReceived: 0, tipsSentCount: 0 };
+        }
         console.error("Error fetching user tip stats:", error);
         return { totalSent: 0, totalReceived: 0, tipsSentCount: 0 };
     }
 }
 
+export interface ProfileData {
+    name: string;
+    bio: string;
+    avatar_url: string;
+}
+
 /**
- * Set user display name
+ * Get a user's profile
  */
-export async function setDisplayName(
+export async function getProfile(address: string): Promise<ProfileData | null> {
+    if (!isValidMovementAddress(address)) return null;
+
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) return null;
+
+    try {
+        const client = getClient();
+        const profile = await client.getAccountResource({
+            accountAddress: convertToMovementAddress(address),
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::Profile`
+        }) as any;
+
+        return {
+            name: getString(profile.name),
+            bio: getString(profile.bio),
+            avatar_url: getString(profile.avatar_url),
+        };
+
+    } catch (error: any) {
+        // Silence 404s (Profile not initialized)
+        if (error?.status === 404 || error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+             return null;
+        }
+        console.error("Error fetching profile:", error);
+        return null;
+    }
+}
+
+/**
+ * Set full user profile (name, bio, avatar)
+ */
+export async function setProfile(
     displayName: string,
+    bio: string,
+    avatarUrl: string,
     signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
 ): Promise<void> {
     const MODULE_ADDRESS = getModuleAddress();
@@ -625,7 +746,52 @@ export async function setDisplayName(
     const transaction: InputTransactionData = {
         data: {
             function: `${MODULE_ADDRESS}::${MODULE_NAME}::update_profile`,
-            functionArguments: [displayName],
+            functionArguments: [displayName, bio, avatarUrl],
+        },
+    };
+
+    try {
+        const response = await signAndSubmitTransaction(transaction);
+        const client = getClient();
+        await client.waitForTransaction({ transactionHash: response.hash });
+    } catch (error) {
+        console.error("Error setting profile:", error);
+        throw error;
+    }
+}
+
+/**
+ * Set user display name
+ * Updates the full profile, preserving other fields if they exist
+ */
+export async function setDisplayName(
+    displayName: string,
+    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>,
+    userAddress?: string // Optional: if provided, we can fetch existing profile to preserve bio/avatar
+): Promise<void> {
+    const MODULE_ADDRESS = getModuleAddress();
+    if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
+
+    let bio = "";
+    let avatarUrl = "";
+
+    // If we have the user address, try to fetch existing profile data
+    if (userAddress) {
+        try {
+            const profile = await getProfile(userAddress);
+            if (profile) {
+                bio = profile.bio;
+                avatarUrl = profile.avatar_url;
+            }
+        } catch (e) {
+            console.warn("Could not fetch existing profile, resetting bio/avatar", e);
+        }
+    }
+
+    const transaction: InputTransactionData = {
+        data: {
+            function: `${MODULE_ADDRESS}::${MODULE_NAME}::update_profile`,
+            functionArguments: [displayName, bio, avatarUrl],
         },
     };
 
@@ -641,18 +807,36 @@ export async function setDisplayName(
 
 /**
  * Set user avatar URL
+ * Updates the full profile, preserving other fields if they exist
  */
 export async function setAvatar(
     avatarUrl: string,
-    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>
+    signAndSubmitTransaction: (transaction: InputTransactionData) => Promise<any>,
+    userAddress?: string // Optional: if provided, we can fetch existing profile to preserve name/bio
 ): Promise<void> {
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) throw new Error("Mainnet contract address not configured. Please deploy the contract and update src/lib/movement.ts");
 
+    let name = "";
+    let bio = "";
+
+    // If we have the user address, try to fetch existing profile data
+    if (userAddress) {
+        try {
+            const profile = await getProfile(userAddress);
+            if (profile) {
+                name = profile.name;
+                bio = profile.bio;
+            }
+        } catch (e) {
+            console.warn("Could not fetch existing profile, resetting name/bio", e);
+        }
+    }
+
     const transaction: InputTransactionData = {
         data: {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::set_avatar`,
-            functionArguments: [avatarUrl],
+            function: `${MODULE_ADDRESS}::${MODULE_NAME}::update_profile`,
+            functionArguments: [name, bio, avatarUrl],
         },
     };
 
@@ -670,27 +854,36 @@ export async function setAvatar(
  * Get user avatar URL
  */
 export async function getAvatar(userAddress: string): Promise<string> {
+    // Return default for invalid address to avoid crash
+    if (!isValidMovementAddress(userAddress)) {
+        return `https://api.dicebear.com/7.x/identicon/svg?seed=${userAddress || 'default'}`;
+    }
+
+    // Force rebuild
     const MODULE_ADDRESS = getModuleAddress();
     if (!MODULE_ADDRESS) {
         return `https://api.dicebear.com/7.x/identicon/svg?seed=${userAddress}`;
     }
 
     try {
-        const payload = {
-            function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_avatar` as `${string}::${string}::${string}`,
-            functionArguments: [convertToMovementAddress(userAddress)],
-        };
-
         const client = getClient();
-        const result = await client.view({ payload });
-        const avatarUrl = getString(result[0]);
+        const profile = await client.getAccountResource({
+            accountAddress: convertToMovementAddress(userAddress),
+            resourceType: `${MODULE_ADDRESS}::move_feed_v12::Profile`
+        }) as any;
+
+        const avatarUrl = getString(profile.avatar_url);
 
         if (avatarUrl) {
             return avatarUrl;
         }
-    } catch (error) {
-        // Silently fail and return default
-        // console.error("Error fetching avatar:", error);
+    } catch (error: any) {
+        if (error?.status === 404 || error?.message?.includes("resource_not_found") || error?.error_code === "resource_not_found") {
+            // Profile not initialized, fallback to default
+        } else {
+             // Silently fail and return default
+             // console.error("Error fetching avatar:", error);
+        }
     }
 
     // Generate a consistent avatar URL based on the user address

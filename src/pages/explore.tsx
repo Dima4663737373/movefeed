@@ -8,16 +8,13 @@ import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import Link from "next/link";
-import { WalletConnectButton } from "@/components/WalletConnectButton";
-import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import PostCard from "@/components/PostCard";
 import { SearchBar } from "@/components/SearchBar";
 import RightSidebar from "@/components/RightSidebar";
-import { getDisplayName, OnChainPost, getAvatar, getAllPostsPaginated, getGlobalPostsCount } from "@/lib/microThreadsClient";
+import { getDisplayName, OnChainPost, getAvatar, getGlobalPosts, getGlobalPostsCount } from "@/lib/microThreadsClient";
 import { getStats } from "@/lib/movementClient";
 import { octasToMove } from "@/lib/movement";
 import AuthGuard from "@/components/AuthGuard";
-import LeftSidebar from "@/components/LeftSidebar";
 
 export default function ExplorePage() {
     const { connected, account } = useWallet();
@@ -27,8 +24,26 @@ export default function ExplorePage() {
     const [stats, setStats] = useState({ totalTips: 0, totalVolume: 0, topTipper: "" });
     const [myDisplayName, setMyDisplayName] = useState("");
     const [myAvatar, setMyAvatar] = useState("");
+    const [filteredPosts, setFilteredPosts] = useState<OnChainPost[]>([]);
 
     const userAddress = account?.address.toString() || "";
+
+    const [searchQuery, setSearchQuery] = useState("");
+
+    const handleSearch = (query: string) => {
+        setSearchQuery(query);
+        if (!query.trim()) {
+            setFilteredPosts(posts);
+            return;
+        }
+        const lowerQuery = query.toLowerCase();
+        const filtered = posts.filter(p => 
+            p.content.toLowerCase().includes(lowerQuery) || 
+            p.creator.toLowerCase().includes(lowerQuery) ||
+            profiles[p.creator]?.displayName?.toLowerCase().includes(lowerQuery)
+        );
+        setFilteredPosts(filtered);
+    };
 
     const fetchData = async () => {
         setLoading(true);
@@ -40,15 +55,15 @@ export default function ExplorePage() {
 
             // For Explore/Trending, we fetch a larger chunk of recent posts
             // In a real app, this would use a dedicated indexer or trending API
-            // For now, we fetch the last 100 posts and sort by tips
+            // For now, we fetch the last 100 posts (page 0 with limit 100) and sort by tips
             const LIMIT = 100;
-            const start = Math.max(0, globalCount - LIMIT);
-            
-            const allPosts = await getAllPostsPaginated(start, LIMIT);
+            // getGlobalPosts takes page index, not offset
+            const allPosts = await getGlobalPosts(0, LIMIT);
 
             // Sort by total tips (trending)
             const sortedPosts = [...allPosts].sort((a, b) => b.total_tips - a.total_tips);
             setPosts(sortedPosts);
+            setFilteredPosts(sortedPosts);
             setStats(statsData);
 
             // Load profiles
@@ -96,64 +111,40 @@ export default function ExplorePage() {
     return (
         <AuthGuard>
             <Head>
-                <title>Explore - MoveFeed</title>
+                <title>Explore - MoveX</title>
             </Head>
 
-            <header className="border-b border-[var(--card-border)] bg-[var(--card-bg)] sticky top-0 z-40 transition-colors duration-300">
-                <div className="container-custom py-6">
-                    <div className="max-w-[1280px] mx-auto flex items-center justify-between">
-                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.location.href = '/feed'}>
-                            <div className="w-10 h-10 bg-[var(--accent)] rounded-lg flex items-center justify-center shadow-lg">
-                                <span className="text-black font-bold text-xl">M</span>
-                            </div>
-                            <span className="font-bold text-xl tracking-tight text-[var(--text-primary)]">MOVEFEED</span>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                            <WalletConnectButton />
-                            <ThemeSwitcher />
-                        </div>
-                    </div>
-                </div>
-            </header>
-
-            <main className="container-custom py-6 md:py-10">
-                <div className="max-w-[1280px] mx-auto">
-
-                    <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] xl:grid-cols-[240px_1fr_280px] gap-y-8 lg:gap-x-0 lg:divide-x lg:divide-[var(--card-border)]">
-                        {/* LEFT SIDEBAR */}
-                        <div className="lg:pr-6">
-                            <LeftSidebar activePage="explore" currentUserAddress={userAddress} displayName={myDisplayName} avatar={myAvatar} />
-                        </div>
-
-                        {/* CENTER: Trending Posts */}
-                        <div className="min-w-0 lg:px-6">
+            <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-6 xl:divide-x xl:divide-[var(--card-border)]">
+                    
+                    {/* CENTER: Trending Posts */}
+                    <div className="min-w-0 lg:px-6">
                             <div className="mb-8">
-                                <SearchBar posts={posts} profiles={profiles} />
+                                <SearchBar posts={posts} profiles={profiles} onSearch={handleSearch} />
                             </div>
 
-                            <div className="flex items-center justify-between mb-4 px-4 lg:px-0">
-                                <h2 className="text-xl font-bold text-[var(--text-primary)]">Trending</h2>
-                                <button
-                                    onClick={fetchData}
-                                    className="p-2 text-[var(--accent)] hover:bg-[var(--accent-dim)] rounded-full transition-colors"
-                                    title="Refresh"
-                                >
-                                    <svg className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                    </svg>
-                                </button>
-                            </div>
+
 
                             {loading ? (
                                 <div className="space-y-4">
-                                    {[1, 2, 3].map(i => (
-                                        <div key={i} className="bg-[var(--card-bg)] border-b border-[var(--card-border)] p-4 animate-pulse h-32"></div>
+                                    {[1, 2, 3, 4, 5].map(i => (
+                                        <div key={i} className="bg-[var(--card-bg)] border-b border-[var(--card-border)] p-4 animate-pulse">
+                                            <div className="flex gap-3">
+                                                <div className="w-10 h-10 bg-neutral-800 rounded-full"></div>
+                                                <div className="flex-1 space-y-2 py-1">
+                                                    <div className="h-4 bg-neutral-800 rounded w-1/3"></div>
+                                                    <div className="h-3 bg-neutral-800 rounded w-1/4"></div>
+                                                </div>
+                                            </div>
+                                            <div className="mt-4 space-y-2">
+                                                <div className="h-4 bg-neutral-800 rounded w-full"></div>
+                                                <div className="h-4 bg-neutral-800 rounded w-5/6"></div>
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
-                            ) : posts.length > 0 ? (
+                            ) : filteredPosts.length > 0 ? (
                                 <div className="border-t border-[var(--card-border)]">
-                                    {posts.map(post => (
+                                    {filteredPosts.map(post => (
                                         <PostCard
                                             key={post.id}
                                             post={{
@@ -168,6 +159,7 @@ export default function ExplorePage() {
                                                 createdAt: post.timestamp * 1000
                                             }}
                                             isOwner={post.creator === userAddress}
+                                            highlight={searchQuery}
                                         />
                                     ))}
                                 </div>
@@ -194,8 +186,6 @@ export default function ExplorePage() {
                             />
                         </div>
                     </div>
-                </div>
-            </main>
         </AuthGuard>
     );
 }

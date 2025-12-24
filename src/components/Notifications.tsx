@@ -8,13 +8,15 @@ import { useLanguage } from '@/contexts/LanguageContext';
 export interface Notification {
     id: string;
     message: string;
-    type: 'success' | 'info' | 'error';
+    type: 'success' | 'info' | 'error' | 'like' | 'comment' | 'repost' | 'follow' | 'mention';
     timestamp: number;
     read: boolean;
+    relatedUser?: string;
+    data?: any;
 }
 
 interface NotificationsContextType {
-    addNotification: (message: string, type?: 'success' | 'info' | 'error', options?: { persist?: boolean; duration?: number }) => void;
+    addNotification: (message: string, type?: 'success' | 'info' | 'error' | 'like' | 'comment' | 'repost' | 'follow' | 'mention', options?: { persist?: boolean; duration?: number }) => void;
     markAsRead: (notificationId?: string) => Promise<void>;
     unreadCount: number;
     notifications: Notification[];
@@ -24,7 +26,7 @@ interface NotificationsContextType {
 interface Toast {
     id: string;
     message: string;
-    type: 'success' | 'info' | 'error';
+    type: 'success' | 'info' | 'error' | 'like' | 'comment' | 'repost' | 'follow' | 'mention';
     duration: number;
 }
 
@@ -37,11 +39,37 @@ export function useNotifications() {
     }
     return context;
 }
+// Ensure exports are valid
+
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
     const { account, signMessage } = useWallet();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [toasts, setToasts] = useState<Toast[]>([]);
+
+    // Load from cache on mount
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('notifications_cache');
+            if (cached) {
+                try {
+                    const parsed = JSON.parse(cached);
+                    if (Array.isArray(parsed)) {
+                        setNotifications(parsed);
+                    }
+                } catch (e) {
+                    console.error("Failed to parse notifications cache", e);
+                }
+            }
+        }
+    }, []);
+
+    // Save to cache whenever notifications change
+    useEffect(() => {
+        if (notifications.length > 0) {
+            localStorage.setItem('notifications_cache', JSON.stringify(notifications.slice(0, 50)));
+        }
+    }, [notifications]);
 
     // Fetch from server when connected and setup Realtime subscription
     useEffect(() => {
@@ -110,10 +138,16 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
                         message: newNotif.message,
                         type: newNotif.type || 'info',
                         timestamp: new Date(newNotif.created_at).getTime(),
-                        read: false
+                        read: false,
+                        relatedUser: newNotif.related_user,
+                        data: newNotif.data
                     };
                     
-                    setNotifications(prev => [notification, ...prev].slice(0, 50));
+                    setNotifications(prev => {
+                        const updated = [notification, ...prev];
+                        // Sort by timestamp desc just in case
+                        return updated.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
+                    });
                     
                     // Also show as toast when received from server
                     addToast(notification.message, notification.type, 5000);
@@ -128,7 +162,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         };
     }, [account?.address]);
 
-    const addToast = (message: string, type: 'success' | 'info' | 'error', duration: number = 3000) => {
+    const addToast = (message: string, type: 'success' | 'info' | 'error' | 'like' | 'comment' | 'repost' | 'follow' | 'mention', duration: number = 3000) => {
         const id = Math.random().toString(36).substring(2, 9);
         setToasts(prev => [...prev, { id, message, type, duration }]);
         
@@ -138,7 +172,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         }, duration);
     };
 
-    const addNotification = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success', options?: { persist?: boolean; duration?: number }) => {
+    const addNotification = useCallback((message: string, type: 'success' | 'info' | 'error' | 'like' | 'comment' | 'repost' | 'follow' | 'mention' = 'success', options?: { persist?: boolean; duration?: number }) => {
         const { persist = false, duration = 3000 } = options || {};
 
         // Always show toast (unless it's an error? No, errors also show toasts)
@@ -215,66 +249,19 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         }));
 
         try {
-            const messagePayload = {
-                userAddress: account.address,
-                notificationId, // optional
-                action: 'mark_read',
-                timestamp: Date.now()
-            };
-            const messageString = JSON.stringify(messagePayload);
-
-            const response = await signMessage({
-                message: messageString,
-                nonce: Date.now().toString(),
-            });
-
-            let signatureToSend: any = response;
-            
-            // Handle object wrapper
-            if (typeof response === 'object' && response !== null) {
-                if ('signature' in response) {
-                    signatureToSend = (response as any).signature;
-                }
-                
-                // Handle nested data object
-                if (typeof signatureToSend === 'object' && signatureToSend && 'data' in (signatureToSend as any)) {
-                    signatureToSend = (signatureToSend as any).data;
-                }
-            }
-
-            // Handle Uint8Array or Array
-            if (Array.isArray(signatureToSend) || signatureToSend instanceof Uint8Array || (typeof signatureToSend === 'object' && signatureToSend !== null && Object.values(signatureToSend).every((v: any) => typeof v === 'number'))) {
-                 // Convert to hex string
-                 const bytes = Array.isArray(signatureToSend) ? signatureToSend : 
-                               (signatureToSend instanceof Uint8Array ? signatureToSend : Object.values(signatureToSend));
-                 signatureToSend = "0x" + Array.from(bytes as any[]).map((b: any) => b.toString(16).padStart(2, '0')).join('');
-            }
-
-            if (!signatureToSend || (typeof signatureToSend === 'string' && !signatureToSend.startsWith('0x'))) {
-                if (typeof signatureToSend === 'string' && /^[0-9a-fA-F]+$/.test(signatureToSend)) {
-                    signatureToSend = "0x" + signatureToSend;
-                } else {
-                     console.warn("Invalid signature format generated for notification mark read");
-                     // We don't throw here to avoid crashing the UI for a background task, but we return early
-                     return;
-                }
-            }
-
             await fetch('/api/notifications', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: messageString,
-                    signature: signatureToSend,
-                    publicKey: Array.isArray(account.publicKey) 
-                        ? account.publicKey[0].toString() 
-                        : (typeof account.publicKey === 'object' ? account.publicKey.toString() : String(account.publicKey))
+                    userAddress: account.address,
+                    notificationId,
+                    action: 'mark_read'
                 })
             });
         } catch (e) {
             console.error("Failed to mark notifications as read", e);
         }
-    }, [account, signMessage]);
+    }, [account]);
 
     return (
         <NotificationsContext.Provider value={{ addNotification, markAsRead, unreadCount, notifications, setNotifications }}>

@@ -83,10 +83,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 (m.sender.toLowerCase() === userAddress && m.receiver.toLowerCase() === contact) ||
                 (m.sender.toLowerCase() === contact && m.receiver.toLowerCase() === userAddress)
             );
+
+            // Count unread messages from this contact
+            const unreadCount = messages.filter((m: Message) => 
+                m.sender.toLowerCase() === contact && 
+                m.receiver.toLowerCase() === userAddress && 
+                !m.read
+            ).length;
             
             return {
                 contact,
-                lastMessage
+                lastMessage,
+                unreadCount
             };
         }).filter(c => c.lastMessage) // Should always exist
         .sort((a, b) => b.lastMessage.timestamp - a.lastMessage.timestamp);

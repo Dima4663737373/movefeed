@@ -43,6 +43,10 @@ export function useMovementTransaction() {
                 throw new Error("Tipping is not enabled on this network.");
             }
 
+            if (!recipient || recipient.trim() === '') {
+                throw new Error("Invalid recipient address.");
+            }
+
             if (!adapterConnected || !adapterAccount) {
                 throw new Error("Please connect your wallet first.");
             }
@@ -54,21 +58,30 @@ export function useMovementTransaction() {
             const gasEstimation = await getGasEstimation();
             console.log("⛽ Gas estimation:", gasEstimation);
 
-            // Use standard coin transfer for direct tips
-            // 0x1::coin::transfer<0x1::aptos_coin::AptosCoin>(recipient, amount)
+            // 0x1::aptos_account::transfer(recipient, amount)
             const amountInOctas = Math.floor(amount * 100_000_000);
             
-            // Use the smart contract for tipping to ensure stats are updated
-            // public entry fun tip_post(account: &signer, creator: address, post_id: u64, amount: u64)
+            // Call Donations contract
             const payload: InputTransactionData = {
                 data: {
-                    function: `${moduleAddress}::MoveFeedV3::tip_post`,
+                    function: `${moduleAddress}::donations_v12::send_tip`,
                     typeArguments: [],
-                    functionArguments: [recipient, postId, amountInOctas.toString()]
+                    functionArguments: [recipient, amountInOctas.toString()]
                 }
             };
 
-            console.log("💸 Sending Tip via Contract:", payload);
+            /* 
+            // Fallback (Legacy)
+            const payload: InputTransactionData = {
+                data: {
+                    function: "0x1::aptos_account::transfer",
+                    typeArguments: [],
+                    functionArguments: [recipient, amountInOctas.toString()]
+                }
+            };
+            */
+
+            console.log("💸 Sending Tip via Smart Contract:", payload);
 
             const response = await adapterSignAndSubmit(payload);
 

@@ -63,6 +63,7 @@ export interface NetworkConfig {
     explorerUrl: string;
     bridgeUrl?: string;
     moduleAddress: string;
+    minesAddress?: string;
 }
 
 export const NETWORKS: Record<NetworkType, NetworkConfig> = {
@@ -73,10 +74,11 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
         rpcUrl: MOVEMENT_TESTNET_RPC,
         indexerUrl: MOVEMENT_TESTNET_INDEXER,
         networkName: MOVEMENT_NETWORK_NAME,
-        explorerUrl: "https://explorer.movementnetwork.xyz/?network=testnet",
+        explorerUrl: "https://explorer.movementnetwork.xyz/?network=bardock+testnet",
         bridgeUrl: "https://bridge.testnet.movementnetwork.xyz/", // Assuming standard naming, or leave undefined
         // Testnet Module Address
-        moduleAddress: "0x87460d0dfcda5ce7853e9a976069b3be904be4ad7f41df37905fda29610166fb"
+        moduleAddress: "0x0a9ee404e5582778c93a188b4ab011377073e3f72de6884b0d1a878c06488518",
+        minesAddress: "0x0a9ee404e5582778c93a188b4ab011377073e3f72de6884b0d1a878c06488518"
     },
     mainnet: {
         type: 'mainnet',
@@ -88,7 +90,7 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
         explorerUrl: "https://explorer.movementnetwork.xyz/?network=mainnet",
         bridgeUrl: "https://bridge.movementnetwork.xyz/",
         // Mainnet Module Address
-        moduleAddress: "0x9cef2fdeac69283a0419d51fdf7ffd4430347c6aef63674282c8a3c97dbef204"
+        moduleAddress: "0xca4cdf80ef00aa5582149f5797908abb0903727e22d53f26c3cffe7aaaadb47c"
     }
 };
 
@@ -163,8 +165,11 @@ export function formatMovementAddress(address: string): string {
 export function convertToMovementAddress(address: string): string {
     if (!address) return "";
 
+    // Ensure address is a string
+    const addrStr = String(address);
+
     // Remove 0x prefix
-    const cleanAddress = address.startsWith("0x") ? address.slice(2) : address;
+    const cleanAddress = addrStr.startsWith("0x") ? addrStr.slice(2) : addrStr;
 
     // If it's already 32 bytes (64 chars), return it
     if (cleanAddress.length === 64) {
@@ -185,9 +190,22 @@ export function convertToMovementAddress(address: string): string {
 export function isValidMovementAddress(address: string): boolean {
     if (!address) return false;
 
-    // Basic validation: starts with 0x and has correct length
-    const hexRegex = /^0x[a-fA-F0-9]{40}$/;
-    return hexRegex.test(address);
+    // Check if it's a string
+    if (typeof address !== 'string') return false;
+
+    // Remove 0x prefix for validation
+    const cleanAddress = address.startsWith("0x") ? address.slice(2) : address;
+
+    // Check if empty
+    if (cleanAddress.length === 0) return false;
+
+    // Check for valid hex characters
+    const hexRegex = /^[0-9a-fA-F]+$/;
+    if (!hexRegex.test(cleanAddress)) return false;
+
+    // Optional: Check length constraints (Move addresses are 32 bytes = 64 chars, EVM 20 bytes = 40 chars)
+    // We allow flexible length because Move addresses can be short (e.g. 0x1) and get padded
+    return true;
 }
 
 // ============================================================================
@@ -210,7 +228,7 @@ export const TIPJAR_MODULE_ADDRESS = getCurrentNetworkConfig().moduleAddress;
  * Movement Bardock Testnet Faucet URL
  * Users need test tokens to interact with the blockchain
  */
-export const MOVEMENT_FAUCET_URL = "https://faucet.movementnetwork.xyz/";
+export const MOVEMENT_FAUCET_URL = "https://faucet.testnet.bardock.movementlabs.xyz/";
 
 /**
  * Minimum balance threshold (in tokens)

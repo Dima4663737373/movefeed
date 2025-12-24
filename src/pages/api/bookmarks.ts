@@ -94,7 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             let postId, creatorAddress, userAddress;
 
             // Case 1: Direct Request (No Signature - New UX)
-            if (directPostId && directCreator && directUser) {
+            if (directPostId !== undefined && directCreator && directUser) {
                 postId = directPostId;
                 creatorAddress = directCreator;
                 userAddress = directUser;
@@ -149,10 +149,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                      return res.status(400).json({ error: `Invalid public key: ${e.message}` });
                 }
             } else {
-                return res.status(400).json({ error: 'Invalid request. Missing parameters.' });
+                const missing = [];
+                if (directPostId === undefined) missing.push('postId');
+                if (!directCreator) missing.push('creatorAddress');
+                if (!directUser) missing.push('userAddress');
+                return res.status(400).json({ error: `Invalid request. Missing parameters: ${missing.join(', ')}` });
             }
 
-            if (!postId || !creatorAddress || !userAddress) {
+            if (postId === undefined || !creatorAddress || !userAddress) {
                 return res.status(400).json({ error: 'Invalid request data. Missing postId, creatorAddress, or userAddress.' });
             }
 

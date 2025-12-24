@@ -1,10 +1,10 @@
 export interface TextSegment {
-    type: 'text' | 'url' | 'hashtag';
+    type: 'text' | 'url' | 'hashtag' | 'mention' | 'cashtag';
     content: string;
 }
 
 /**
- * Parses text into segments of text, URLs, and hashtags.
+ * Parses text into segments of text, URLs, hashtags, mentions, and cashtags.
  * @param text The input text to parse
  * @returns An array of TextSegment objects
  */
@@ -13,8 +13,10 @@ export function parseText(text: string): TextSegment[] {
     
     // Regex matches:
     // 1. URLs (http:// or https:// or www.)
-    // 2. Hashtags (#word) - Updated to support Unicode (Cyrillic etc)
-    const regex = /((?:https?:\/\/|www\.)[^\s]+)|(#[^\s!@#$%^&*()=+[\]{};:'",.<>/?`~]+)/g;
+    // 2. Hashtags (#word) - Updated to support Unicode
+    // 3. Mentions (@word or @0x...) - Updated to support Unicode and addresses
+    // 4. Cashtags ($word) - 1-6 letters, uppercase usually but we allow case insensitive
+    const regex = /((?:https?:\/\/|www\.)[^\s]+)|(#[^\s!@#$%^&*()=+[\]{};:'",.<>/?`~]+)|(@[^\s!@#$%^&*()=+[\]{};:'",.<>/?`~]+)|(\$[a-zA-Z]{1,8}(?![a-zA-Z]))/g;
     
     const segments: TextSegment[] = [];
     let lastIndex = 0;
@@ -40,6 +42,18 @@ export function parseText(text: string): TextSegment[] {
             // Remove the # prefix for the content, as the UI adds it back
             segments.push({
                 type: 'hashtag',
+                content: matchedString.substring(1)
+            });
+        } else if (match[3]) { // Mention group
+            // Remove the @ prefix
+            segments.push({
+                type: 'mention',
+                content: matchedString.substring(1)
+            });
+        } else if (match[4]) { // Cashtag group
+            // Remove the $ prefix
+            segments.push({
+                type: 'cashtag',
                 content: matchedString.substring(1)
             });
         }
@@ -73,4 +87,34 @@ export function extractHashtags(text: string): string[] {
     // Extract tag and remove #, then deduplicate
     const tags = matches.map(tag => tag.slice(1));
     return Array.from(new Set(tags));
+}
+
+/**
+ * Extracts all cashtags from a given text.
+ * @param text The text to scan
+ * @returns Array of unique cashtags (without $)
+ */
+export function extractCashtags(text: string): string[] {
+    if (!text) return [];
+    const regex = /\$[a-zA-Z]{1,8}(?![a-zA-Z])/g;
+    const matches = text.match(regex);
+    if (!matches) return [];
+    
+    const tags = matches.map(tag => tag.slice(1));
+    return Array.from(new Set(tags));
+}
+
+/**
+ * Extracts all mentions from a given text.
+ * @param text The text to scan
+ * @returns Array of unique mentions (without @)
+ */
+export function extractMentions(text: string): string[] {
+    if (!text) return [];
+    const regex = /@[^\s!@#$%^&*()=+[\]{};:'",.<>/?`~]+/g;
+    const matches = text.match(regex);
+    if (!matches) return [];
+    
+    const mentions = matches.map(tag => tag.slice(1));
+    return Array.from(new Set(mentions));
 }

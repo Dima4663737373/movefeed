@@ -1,0 +1,10 @@
+[package]
+name = "Hello"
+version = "1.0.0"
+upgrade_policy = "compatible"
+
+[addresses]
+hello_addr = "0xd5002c5ac88d8db0e7bc8e047760c339d9ddd14ddb790e30a9b8ff7dc37c98be"
+
+[dependencies]
+AptosFramework = { local = "../local_framework/aptos-framework" }
